@@ -1775,7 +1775,7 @@ function NowCard({ activities, template, todayIdx }) {
       <div className="flex items-start justify-between mb-2">
         <div>
           <p className="text-[10px] tracking-[0.3em] text-stone-500 uppercase mb-0.5">Now</p>
-          <p className="text-2xl text-stone-900 tabular-nums" style={{ fontFamily: 'Georgia, serif', fontWeight: 400 }}>
+          <p className="text-stone-900 tabular-nums" style={{ fontFamily: '-apple-system, "SF Pro Display", "Helvetica Neue", sans-serif', fontSize: '36px', fontWeight: 300, letterSpacing: '-0.02em' }}>
             {timeStr}
           </p>
         </div>

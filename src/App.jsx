@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser } from 'lucide-react';
+import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser, Star } from 'lucide-react';
 import { DndContext, closestCenter, useSensor, useSensors, MouseSensor, TouchSensor } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -109,7 +109,7 @@ const formatHour = (h) => `${h.toString().padStart(2, '0')}:00`;
 const jsDayToMonIdx = (d) => d === 0 ? 6 : d - 1;
 
 export default function App() {
-  const [tab, setTab] = useState('plan');
+  const [tab, setTab] = useState('focus');
   const [activities, setActivities] = useState(DEFAULT_ACTIVITIES);
   const [template, setTemplate] = useState({}); // 週 template
   const [slots, setSlots] = useState(DEFAULT_SUPPLEMENT_SLOTS);
@@ -178,9 +178,10 @@ export default function App() {
           </div>
         </div>
 
-        {/* 3 個 Tab */}
+        {/* 4 個 Tab */}
         <div className="flex gap-1 p-1 bg-stone-200/60 rounded-full">
           {[
+            { id: 'focus', label: '今日焦點', icon: Star },
             { id: 'plan', label: '計劃', icon: Clock },
             { id: 'health', label: '健康', icon: Heart },
             { id: 'report', label: '統計報告', icon: FileText },
@@ -208,6 +209,7 @@ export default function App() {
       </header>
 
       <main className="px-4 pt-3">
+        {tab === 'focus' && <FocusTab activities={activities} template={template} slots={slots} skincare={skincare} settings={settings} />}
         {tab === 'plan' && <PlanTab activities={activities} template={template} onSaveTemplate={saveTemplate} onSaveActivities={saveActivities} />}
         {tab === 'health' && <HealthTab slots={slots} skincare={skincare} skincareTimes={skincareTimes} onSaveSlots={saveSlots} onSaveSkincare={saveSkincare} onSaveSkincareTimes={saveSkincareTimes} />}
         {tab === 'report' && <ReportTab activities={activities} template={template} slots={slots} skincare={skincare} />}
@@ -258,6 +260,209 @@ export default function App() {
       {showSettings && (
         <SettingsModal settings={settings} onSave={saveSettings} onClose={() => setShowSettings(false)} />
       )}
+    </div>
+  );
+}
+
+// ============ Focus Tab（今日焦點 —— 3 個時間感知 mode）============
+
+function timeToMinutes(t) {
+  const [h, m] = (t || '00:00').split(':').map(Number);
+  return h * 60 + m;
+}
+
+/**
+ * 邊個 mode 生效，淨係靠時間，用戶唔可以手動 override（KISS，跟返
+ * 用戶決定）。順序好緊要：先判斷 morning（有明確頭尾嘅一段），再判斷
+ * wind-down（會跨午夜，所以用「>= windDownStart 或者 < morningStart」
+ * 嚟 wrap），淨低嘅就係 dynamic —— 3 個分支冚晒 24 小時，冇縫冇重疊。
+ */
+function getFocusMode(now, settings) {
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const mStart = timeToMinutes(settings.morningStart);
+  const mEnd = timeToMinutes(settings.morningEnd);
+  const wStart = timeToMinutes(settings.windDownStart);
+  if (nowMin >= mStart && nowMin < mEnd) return 'morning';
+  if (nowMin >= wStart || nowMin < mStart) return 'winddown';
+  return 'dynamic';
+}
+
+// 距離目標時鐘時間仲有幾多分鐘 —— 揀「而家之後最近一次出現嗰個時間點」，
+// 過咗今日嗰個就自動 roll 去聽日（處理 sleepTarget=00:00 呢類跨午夜情況）
+function minutesUntil(now, targetHHMM) {
+  const [h, m] = (targetHHMM || '00:00').split(':').map(Number);
+  const target = new Date(now);
+  target.setHours(h, m, 0, 0);
+  if (target <= now) target.setDate(target.getDate() + 1);
+  return Math.round((target - now) / 60000);
+}
+
+function FocusTab({ activities, template, slots, skincare, settings }) {
+  const [now, setNow] = useState(new Date());
+  const [record, setRecord] = useState({ supps: {}, skincare: {}, windDown: {} });
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await window.storage.get(HEALTH_RECORD_PREFIX + fmtDate(new Date())).catch(() => null);
+        if (r?.value) {
+          const p = JSON.parse(r.value);
+          setRecord({ supps: p.supps || {}, skincare: p.skincare || {}, windDown: p.windDown || {} });
+        }
+      } catch {}
+    })();
+  }, []);
+
+  const saveRecord = async (n) => {
+    setRecord(n);
+    try { await window.storage.set(HEALTH_RECORD_PREFIX + fmtDate(new Date()), JSON.stringify(n)); } catch (e) {}
+  };
+  const toggleSupp = (sId, iId) => { const k = `${sId}:${iId}`; saveRecord({ ...record, supps: { ...record.supps, [k]: !record.supps[k] } }); };
+  const toggleSkin = (p, id) => { const k = `${p}:${id}`; saveRecord({ ...record, skincare: { ...record.skincare, [k]: !record.skincare[k] } }); };
+  const toggleWindDown = (id) => { saveRecord({ ...record, windDown: { ...record.windDown, [id]: !record.windDown[id] } }); };
+
+  const mode = getFocusMode(now, settings);
+  const todayIdx = jsDayToMonIdx(now.getDay());
+
+  return (
+    <div>
+      {mode === 'morning' && (
+        <MorningMode skincare={skincare} slots={slots} record={record} onToggleSkin={toggleSkin} onToggleSupp={toggleSupp} waterGoal={settings.waterGoal} />
+      )}
+      {mode === 'dynamic' && (
+        <DynamicMode activities={activities} template={template} todayIdx={todayIdx} slots={slots} record={record} onToggleSupp={toggleSupp} waterGoal={settings.waterGoal} />
+      )}
+      {mode === 'winddown' && (
+        <WindDownMode skincare={skincare} record={record} onToggleSkin={toggleSkin} onToggleWindDown={toggleWindDown} settings={settings} now={now} waterGoal={settings.waterGoal} />
+      )}
+    </div>
+  );
+}
+
+function FocusSectionHeader({ emoji, title, count }) {
+  return (
+    <div className="flex items-baseline gap-2 mb-2 px-1">
+      <span className="text-lg">{emoji}</span>
+      <h3 className="text-base text-stone-900" style={{ fontWeight: 600 }}>{title}</h3>
+      {count && <span className="text-[11px] text-stone-400 ml-auto">{count}</span>}
+    </div>
+  );
+}
+
+function MorningMode({ skincare, slots, record, onToggleSkin, onToggleSupp, waterGoal }) {
+  const amSteps = skincare.am;
+  const amChecked = amSteps.filter(s => record.skincare[`am:${s.id}`]).length;
+  const breakfastSlot = slots.find(s => s.label === '早餐後');
+  const breakfastChecked = breakfastSlot ? breakfastSlot.items.filter(i => record.supps[`${breakfastSlot.id}:${i.id}`]).length : 0;
+
+  return (
+    <div>
+      <p className="text-[10px] tracking-[0.3em] text-stone-500 uppercase mb-3">🌅 早晨</p>
+
+      <div className="mb-5">
+        <FocusSectionHeader emoji="☀️" title="早晨護膚" count={`${amChecked}/${amSteps.length}`} />
+        {amSteps.length === 0 ? (
+          <EmptyState icon={Sparkles} title="未設定護膚步驟" desc="去健康 tab 加返" />
+        ) : amSteps.map((step, idx) => (
+          <ChecklistItem key={step.id} label={step.name} checked={!!record.skincare[`am:${step.id}`]} index={idx + 1} tint="blue" onClick={() => onToggleSkin('am', step.id)} />
+        ))}
+      </div>
+
+      <div className="mb-5">
+        <FocusSectionHeader emoji="💊" title="早餐後" count={breakfastSlot ? `${breakfastChecked}/${breakfastSlot.items.length}` : null} />
+        {!breakfastSlot || breakfastSlot.items.length === 0 ? (
+          <EmptyState icon={Pill} title='未設定「早餐後」時段' desc="去健康 tab 加返" />
+        ) : breakfastSlot.items.map(item => (
+          <ChecklistItem key={item.id} label={item.name} checked={!!record.supps[`${breakfastSlot.id}:${item.id}`]} tint="emerald" onClick={() => onToggleSupp(breakfastSlot.id, item.id)} />
+        ))}
+      </div>
+
+      <WaterTracker goal={waterGoal} readOnly={false} />
+    </div>
+  );
+}
+
+function DynamicMode({ activities, template, todayIdx, slots, record, onToggleSupp, waterGoal }) {
+  // 邊個 supp slot 最接近而家（同 SupplementsSection 個 nowSlotId 邏輯一樣，
+  // 兩個鐘內先算 —— 唔喺範圍內就乜都唔顯示，唔會逼出一個唔相關嘅 list）
+  const nowSlot = useMemo(() => {
+    if (slots.length === 0) return null;
+    const n = new Date();
+    const nowMin = n.getHours() * 60 + n.getMinutes();
+    let nearest = null, nearestDiff = Infinity;
+    slots.forEach(s => {
+      const [h, m] = (s.time || '08:00').split(':').map(Number);
+      const diff = Math.abs(h * 60 + m - nowMin);
+      if (diff < nearestDiff) { nearestDiff = diff; nearest = s; }
+    });
+    return nearestDiff <= 120 ? nearest : null;
+  }, [slots]);
+
+  return (
+    <div>
+      <NowCard activities={activities} template={template} todayIdx={todayIdx} />
+
+      {nowSlot && (
+        <div className="mb-4">
+          <div className="flex items-baseline gap-2 mb-2 px-1">
+            <span className="text-lg">{nowSlot.emoji}</span>
+            <h3 className="text-base text-stone-900" style={{ fontWeight: 600 }}>{nowSlot.label}</h3>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800" style={{ fontWeight: 600 }}>Now</span>
+            <span className="text-[11px] text-stone-400 ml-auto">{nowSlot.items.filter(i => record.supps[`${nowSlot.id}:${i.id}`]).length}/{nowSlot.items.length}</span>
+          </div>
+          {nowSlot.items.length === 0 ? (
+            <p className="text-xs text-stone-400 italic px-1" style={{ fontFamily: 'Georgia, serif' }}>未有項目</p>
+          ) : nowSlot.items.map(item => (
+            <ChecklistItem key={item.id} label={item.name} checked={!!record.supps[`${nowSlot.id}:${item.id}`]} isNow tint="emerald" onClick={() => onToggleSupp(nowSlot.id, item.id)} />
+          ))}
+        </div>
+      )}
+
+      <WaterTracker goal={waterGoal} readOnly={false} />
+    </div>
+  );
+}
+
+function WindDownMode({ skincare, record, onToggleSkin, onToggleWindDown, settings, now, waterGoal }) {
+  const minsLeft = minutesUntil(now, settings.sleepTarget);
+  const pmSteps = skincare.pm;
+  const pmChecked = pmSteps.filter(s => record.skincare[`pm:${s.id}`]).length;
+
+  return (
+    <div>
+      <div className="rounded-2xl mb-5 p-5 border bg-white border-stone-200 text-center">
+        <p className="text-[10px] tracking-[0.3em] text-stone-500 uppercase mb-1">距離熄燈</p>
+        <p className="text-stone-900 tabular-nums" style={{ fontFamily: '-apple-system, "SF Pro Display", "Helvetica Neue", sans-serif', fontSize: '48px', fontWeight: 300, letterSpacing: '-0.02em' }}>
+          {minsLeft}
+        </p>
+        <p className="text-xs text-stone-500">分鐘</p>
+      </div>
+
+      <div className="mb-5">
+        <div className="flex items-baseline gap-2 mb-2 px-1">
+          <span className="text-lg">🧴</span>
+          <h3 className="text-base text-stone-900" style={{ fontWeight: 600 }}>護膚</h3>
+          <span className="text-[10px] text-stone-400">建議 10 分鐘</span>
+          <span className="text-[11px] text-stone-400 ml-auto">{pmChecked}/{pmSteps.length}</span>
+        </div>
+        {pmSteps.length === 0 ? (
+          <EmptyState icon={Sparkles} title="未設定護膚步驟" desc="去健康 tab 加返" />
+        ) : pmSteps.map((step, idx) => (
+          <ChecklistItem key={step.id} label={step.name} checked={!!record.skincare[`pm:${step.id}`]} index={idx + 1} tint="blue" onClick={() => onToggleSkin('pm', step.id)} />
+        ))}
+      </div>
+
+      <div className="mb-5">
+        <ChecklistItem label="📖 睇實體書（15 分鐘）" checked={!!record.windDown?.book} tint="emerald" onClick={() => onToggleWindDown('book')} />
+        <ChecklistItem label="🧘 冥想（5 分鐘）" checked={!!record.windDown?.meditation} tint="emerald" onClick={() => onToggleWindDown('meditation')} />
+      </div>
+
+      <WaterTracker goal={waterGoal} readOnly={true} />
     </div>
   );
 }

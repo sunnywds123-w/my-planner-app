@@ -89,6 +89,15 @@ const SLOTS_KEY = 'supp-slots-v1';
 const SKINCARE_KEY = 'skincare-v1';
 const SKINCARE_TIMES_KEY = 'skincare-times-v1';
 const HEALTH_RECORD_PREFIX = 'health:'; // health:YYYY-MM-DD = { supps:{}, skincare:{} }
+const SETTINGS_KEY = 'settings-v1'; // { morningStart, morningEnd, windDownStart, sleepTarget, waterGoal } — 新 key，冇舊資料需要 migrate
+
+const DEFAULT_SETTINGS = {
+  morningStart: '07:00',
+  morningEnd: '09:00',
+  windDownStart: '23:00',
+  sleepTarget: '00:00',
+  waterGoal: 2000,
+};
 
 const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const fmtDateZh = (d) => `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
@@ -105,19 +114,22 @@ export default function App() {
   const [slots, setSlots] = useState(DEFAULT_SUPPLEMENT_SLOTS);
   const [skincare, setSkincare] = useState(DEFAULT_SKINCARE);
   const [skincareTimes, setSkincareTimes] = useState(DEFAULT_SKINCARE_TIMES);
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [savedFlash, setSavedFlash] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const [a, t, s, k, st] = await Promise.all([
+        const [a, t, s, k, st, se] = await Promise.all([
           window.storage.get(ACTIVITIES_KEY).catch(() => null),
           window.storage.get(TEMPLATE_KEY).catch(() => null),
           window.storage.get(SLOTS_KEY).catch(() => null),
           window.storage.get(SKINCARE_KEY).catch(() => null),
           window.storage.get(SKINCARE_TIMES_KEY).catch(() => null),
+          window.storage.get(SETTINGS_KEY).catch(() => null),
         ]);
         if (a?.value) setActivities(JSON.parse(a.value));
         if (t?.value) setTemplate(JSON.parse(t.value));
@@ -129,6 +141,8 @@ export default function App() {
         }
         if (k?.value) setSkincare(JSON.parse(k.value));
         if (st?.value) setSkincareTimes(JSON.parse(st.value));
+        // settings-v1 係全新 key，讀唔到就用 default，唔係 error（Rule 5）
+        if (se?.value) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(se.value) });
       } finally { setLoading(false); }
     })();
   }, []);
@@ -139,6 +153,7 @@ export default function App() {
   const saveSlots = async (n) => { setSlots(n); try { await window.storage.set(SLOTS_KEY, JSON.stringify(n)); flashSaved(); } catch(e){} };
   const saveSkincare = async (n) => { setSkincare(n); try { await window.storage.set(SKINCARE_KEY, JSON.stringify(n)); flashSaved(); } catch(e){} };
   const saveSkincareTimes = async (n) => { setSkincareTimes(n); try { await window.storage.set(SKINCARE_TIMES_KEY, JSON.stringify(n)); flashSaved(); } catch(e){} };
+  const saveSettings = async (n) => { setSettings(n); try { await window.storage.set(SETTINGS_KEY, JSON.stringify(n)); flashSaved(); } catch(e){} };
 
   if (loading) {
     return <div className="min-h-screen bg-stone-50 flex items-center justify-center"><p className="text-stone-500" style={{fontFamily:'Georgia, serif'}}>載入緊...</p></div>;
@@ -152,9 +167,14 @@ export default function App() {
             <p className="text-[10px] tracking-[0.3em] text-stone-500 uppercase mb-0.5">My Planner</p>
             <h1 className="text-2xl text-stone-900" style={{ fontFamily: 'Georgia, serif', fontWeight: 400, letterSpacing: '-0.02em' }}>每週計劃</h1>
           </div>
-          <button onClick={() => setShowBackup(true)} className="w-9 h-9 rounded-full bg-white border border-stone-200 flex items-center justify-center active:scale-95 mt-1" title="備份與還原">
-            <Database size={15} className="text-stone-600" />
-          </button>
+          <div className="flex items-center gap-2 mt-1">
+            <button onClick={() => setShowSettings(true)} className="w-9 h-9 rounded-full bg-white border border-stone-200 flex items-center justify-center active:scale-95" title="設定">
+              <Settings size={15} className="text-stone-600" />
+            </button>
+            <button onClick={() => setShowBackup(true)} className="w-9 h-9 rounded-full bg-white border border-stone-200 flex items-center justify-center active:scale-95" title="備份與還原">
+              <Database size={15} className="text-stone-600" />
+            </button>
+          </div>
         </div>
 
         {/* 3 個 Tab */}
@@ -232,6 +252,10 @@ export default function App() {
           }}
           onClose={() => setShowBackup(false)}
         />
+      )}
+
+      {showSettings && (
+        <SettingsModal settings={settings} onSave={saveSettings} onClose={() => setShowSettings(false)} />
       )}
     </div>
   );
@@ -1359,6 +1383,105 @@ function ChecklistItem({ label, checked, isNow, index, tint = 'emerald', onClick
       </div>
       <span className="text-base flex-1 text-left" style={{ color: checked ? c.text : '#1c1917', fontWeight: 500, textDecorationLine: checked ? 'line-through' : 'none', textDecorationColor: c.strike }}>{label}</span>
     </button>
+  );
+}
+
+// ============ Settings Modal（今日焦點 mode 時間 + 水量目標）============
+
+function SettingsModal({ settings, onSave, onClose }) {
+  const [local, setLocal] = useState(settings);
+
+  // 淨係驗證 morningStart < morningEnd（同日先有意義嘅一對）；
+  // windDownStart/sleepTarget 刻意唔喺度驗證次序 —— sleepTarget 預設
+  // 00:00 本身就係跨咗午夜，倒數計算會自己處理「揀下一個出現嗰個
+  // 時間點」，唔需要喺呢度用同日比較去卡佢
+  const morningValid = local.morningStart < local.morningEnd;
+  const waterGoalValid = Number(local.waterGoal) > 0;
+  const canSave = morningValid && waterGoalValid;
+
+  const handleSave = () => {
+    if (!canSave) return;
+    onSave({ ...local, waterGoal: Number(local.waterGoal) });
+    onClose();
+  };
+
+  return (
+    <Modal title="設定" onClose={onClose}>
+      <p className="text-xs text-stone-500 italic mb-4 px-1" style={{ fontFamily: 'Georgia, serif' }}>
+        「今日焦點」tab 用呢啲時間自動判斷早晨／動態／wind-down mode。
+      </p>
+
+      <div className="rounded-xl bg-white border border-stone-200 p-4 mb-3">
+        <div className="mb-3">
+          <label className="text-xs text-stone-600 mb-1.5 flex items-center gap-1.5">
+            <span className="text-base">🌅</span>Morning mode 開始時間
+          </label>
+          <input
+            type="time"
+            value={local.morningStart}
+            onChange={e => setLocal({ ...local, morningStart: e.target.value })}
+            className="w-full px-3 py-2.5 rounded-lg bg-stone-50 border border-stone-200 text-sm outline-none focus:border-stone-400"
+          />
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-stone-600 mb-1.5 flex items-center gap-1.5">
+            <span className="text-base">🌅</span>Morning mode 結束時間
+          </label>
+          <input
+            type="time"
+            value={local.morningEnd}
+            onChange={e => setLocal({ ...local, morningEnd: e.target.value })}
+            className="w-full px-3 py-2.5 rounded-lg bg-stone-50 border border-stone-200 text-sm outline-none focus:border-stone-400"
+          />
+          {!morningValid && (
+            <p className="text-[11px] text-red-600 mt-1">結束時間要遲過開始時間</p>
+          )}
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-stone-600 mb-1.5 flex items-center gap-1.5">
+            <span className="text-base">🌙</span>Wind-down mode 開始時間
+          </label>
+          <input
+            type="time"
+            value={local.windDownStart}
+            onChange={e => setLocal({ ...local, windDownStart: e.target.value })}
+            className="w-full px-3 py-2.5 rounded-lg bg-stone-50 border border-stone-200 text-sm outline-none focus:border-stone-400"
+          />
+        </div>
+        <div className="mb-3">
+          <label className="text-xs text-stone-600 mb-1.5 flex items-center gap-1.5">
+            <span className="text-base">💤</span>Sleep target
+          </label>
+          <input
+            type="time"
+            value={local.sleepTarget}
+            onChange={e => setLocal({ ...local, sleepTarget: e.target.value })}
+            className="w-full px-3 py-2.5 rounded-lg bg-stone-50 border border-stone-200 text-sm outline-none focus:border-stone-400"
+          />
+        </div>
+        <div>
+          <label className="text-xs text-stone-600 mb-1.5 flex items-center gap-1.5">
+            <span className="text-base">💧</span>每日水量目標（ml）
+          </label>
+          <input
+            type="number"
+            min="0"
+            step="50"
+            value={local.waterGoal}
+            onChange={e => setLocal({ ...local, waterGoal: e.target.value })}
+            className="w-full px-3 py-2.5 rounded-lg bg-stone-50 border border-stone-200 text-sm outline-none focus:border-stone-400"
+          />
+          {!waterGoalValid && (
+            <p className="text-[11px] text-red-600 mt-1">要大過 0</p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <button onClick={onClose} className="flex-1 py-2.5 rounded-lg text-sm text-stone-600 bg-stone-100 active:bg-stone-200">取消</button>
+        <button onClick={handleSave} disabled={!canSave} className="flex-1 py-2.5 rounded-lg text-sm text-white bg-stone-900 active:bg-stone-700 disabled:opacity-50" style={{ fontWeight: 500 }}>儲存</button>
+      </div>
+    </Modal>
   );
 }
 

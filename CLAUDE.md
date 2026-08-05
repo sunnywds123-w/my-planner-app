@@ -121,3 +121,182 @@ There are no tests currently. If adding tests, use Vitest (Vite-native).
   - Short summaries, not walls of text
   - Concrete options over vague suggestions
   - Show tradeoffs explicitly
+
+## User's Core Rules (MUST FOLLOW)
+
+呢啲係用戶明確要求嘅規矩，Claude Code 每次回應都要跟。
+
+### Rule 1: 每次畀選擇都要有你嘅建議
+When presenting the user with multiple options or asking them to make a decision, ALWAYS include your recommendation with reasoning. Never present options neutrally without guidance.
+
+**❌ 錯誤例子：**
+> 你可以用 A 或者 B，你揀邊個？
+
+**✅ 正確例子：**
+> 有兩個 option：
+> - A：xxx（好處 / 壞處）
+> - B：xxx（好處 / 壞處）
+> 
+> **我建議 A**，因為 [具體理由基於 project context]。你想點？
+
+### Rule 2: 分開「同用戶講嘅」同「同 Claude Code 講嘅」
+
+When the user is planning work that involves both discussion with you (Claude.ai web) AND execution by Claude Code (terminal), CLEARLY LABEL which parts are for which audience.
+
+Use these labels:
+
+**📋 同用戶（Sunny）講：**
+- 討論、意見、tradeoff 分析、建議
+- 用繁體中文
+- Conversational tone
+
+**🤖 同 Claude Code 講（可 copy 落 terminal）：**
+- Task instructions, prompts, commands
+- 用 code block 包住方便 copy
+- Format 到可以直接 paste
+
+### Rule 3: 每次畀 spec / prompt 都要有可 copy 嘅 code block 版本
+
+When providing a prompt or instruction for Claude Code, ALWAYS wrap it in a code block (```) so the user can copy it easily. Never make the user manually select text from prose.
+
+**❌ 錯誤例子：**
+> 你可以叫 Claude Code 幫你 read CLAUDE.md 同 App.jsx 然後...
+
+**✅ 正確例子：**
+> 
+> ```
+> 先讀 CLAUDE.md 同 src/App.jsx，
+> 然後幫我加 drag & drop 排序功能到活動類別。
+> ```
+
+---
+
+**呢 3 條規矩優先級高過其他所有 preferences。** 如果 Claude Code 忘記，用戶會提示，Claude Code 要即刻改正並記住喺 subsequent responses。
+
+## Development Rules
+
+呢啲係開發流程規矩，Claude Code 每次做嘢都要跟。
+
+### Rule 4: Commit Message Convention
+
+每次 commit 都要跟以下 format：
+
+```
+<type>: <繁體中文簡短描述>
+
+[optional body 詳細解釋]
+```
+
+**Types:**
+- `feat`: 新功能（例：`feat: 活動類別 drag & drop 排序`）
+- `fix`: 修 bug（例：`fix: Now Card 唔更新時間`）
+- `refactor`: 重構冇改功能（例：`refactor: 拆 BackupModal 出獨立檔案`）
+- `style`: 純 UI 樣改（例：`style: 統一 button 顏色`）
+- `docs`: CLAUDE.md 或註釋更新（例：`docs: 加 storage key migration 規則`）
+- `chore`: 依賴更新、config 改動（例：`chore: 升級 vite 至 5.4`）
+
+**規矩：**
+- Subject line ≤ 60 字元
+- 一個 commit 只做一件事
+- 唔好將唔相關嘅嘢 mix 埋一齊
+
+### Rule 5: Storage Migration Protocol
+
+用戶已經有一次因為 storage key 變動而「app 資料 reset」嘅切膚之痛。**任何 storage key 改動都要有 migration**。
+
+**改 storage key 前必須：**
+
+1. **保留舊 key**：新 code 要有 fallback 讀舊 key
+2. **寫 migration function**：讀舊 key → 轉新 key → 儲返落新 key
+3. **保留舊 backup**：唔可以直接刪舊 key（起碼 3 個月後先考慮清理）
+4. **測試 upgrade path**：模擬舊用戶 upgrade 上嚟嘅場景
+
+**Example pattern:**
+```javascript
+// 讀 storage 時
+async function loadActivities() {
+  // 試新 key
+  let data = await window.storage.get('activities-v6');
+  if (data?.value) return JSON.parse(data.value);
+  
+  // Migration: 試舊 key
+  data = await window.storage.get('activities-v5');
+  if (data?.value) {
+    const parsed = JSON.parse(data.value);
+    // 轉換到新 format
+    const migrated = migrateV5toV6(parsed);
+    // 儲返落新 key
+    await window.storage.set('activities-v6', JSON.stringify(migrated));
+    return migrated;
+  }
+  
+  return DEFAULT_ACTIVITIES;
+}
+```
+
+**唔可以：**
+- 直接改 storage key 名而冇 migration
+- 覆蓋現有 storage key 嘅 data schema 而冇 fallback
+- 未問用戶就 clear 現有 storage
+
+### Rule 6: Testing Checklist Before Commit
+
+每次改完 code，commit 前 Claude Code 必須：
+
+**✅ 必查項：**
+- [ ] `npm run dev` 開得到，冇 console error
+- [ ] 開改動涉及嘅 page/component，手動 test 過 happy path
+- [ ] Backup / 匯入 / 匯出功能仲 work（因為呢個係用戶最緊要嘅安全網）
+- [ ] 主要 3 個 tab（計劃 / 健康 / 統計報告）唔可以壞
+
+**🔍 建議查項（大改動時）：**
+- [ ] 手機 view (375px width) 睇下 responsive 有冇 break
+- [ ] Now Card 顯示正常
+- [ ] 一日內 refresh 幾次，storage 保留住
+- [ ] Console 冇 warning
+
+**Report format:**
+Commit 之前用呢個 format 話用戶知：
+
+```
+✅ Testing Report
+- npm run dev: OK
+- Feature tested: [具體邊個 feature]
+- Backup/import: OK
+- Console: clean
+- Ready to commit
+```
+
+如果任何一項唔 OK，**唔可以 commit**，要話用戶知然後 fix。
+
+### Rule 7: 「先問後做」Red Lines
+
+就算用戶話「幫我做」或者「你決定」，以下情況 Claude Code 都**必須先問**：
+
+**🚨 Red Lines（必須先問）：**
+
+1. **刪除任何 storage key** — 除非用戶明確講「delete X data」
+2. **大 refactor** — 拆檔案、改 architecture、rename 主要 component
+3. **加新 dependency** — `npm install` 前先話用戶知你想加咩、大細幾多、有冇 alternative
+4. **改 package.json scripts** — 尤其係 build / dev / deploy 相關
+5. **改 vite.config.js / postcss.config.js / tailwind.config.js** — build 配置改壞會出大事
+6. **改 manifest.json** — 影響 PWA 行為（icon、name、start_url）
+7. **改 storage key naming scheme** — 見 Rule 5
+8. **Force push / rewrite git history** — 永遠先問
+9. **Delete files / folders** — 用戶要明確 confirm
+10. **改動涉及超過 3 個檔案嘅 refactor** — Scope 太大要先商量
+
+**問嘅時候 format：**
+
+```
+⚠️ 我想 [具體動作]，因為 [原因]。
+Impact: [會影響邊啲嘢]
+Alternative: [有冇其他做法]
+可以繼續嗎？
+```
+
+---
+
+**Rule 4-7 優先級同 Rule 1-3 一樣高。** 呢啲規矩保護用戶嘅時間、data、同心血。
+
+

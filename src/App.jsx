@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser } from 'lucide-react';
+import { DndContext, closestCenter, useSensor, useSensors, MouseSensor, TouchSensor } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 // localStorage shim（取代 Claude artifact 嘅 window.storage）
 if (typeof window !== 'undefined' && !window.storage) {
@@ -40,8 +43,20 @@ const DEFAULT_ACTIVITIES = [
 ];
 
 const COLOR_PALETTE = ['#ef4444', '#f59e0b', '#eab308', '#84cc16', '#10b981', '#0891b2', '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#78716c', '#1c1917'];
-const ACTIVITY_EMOJIS = ['✨', '🎯', '💼', '🎮', '☕', '🎓', '📚', '🍽️', '🏋️', '💪', '🧘', '🛒', '🚗', '🏠', '💤', '📞', '✈️', '🎬', '🍳', '🐶', '🎵', '📝', '🌱', '⚽', '🎸', '🛏️'];
+const ACTIVITY_EMOJIS = ['✨', '🎯', '💼', '🎮', '☕', '🎓', '📚', '🍽️', '🏋️', '💪', '🧘', '🛒', '🚗', '🏠', '💤', '📞', '✈️', '🎬', '🍳', '🐶', '🎵', '📝', '🌱', '⚽', '🎸', '🛏️', '🌅', '🧴'];
 const SLOT_EMOJIS = ['🌅', '☀️', '🌤️', '🌆', '🌙', '⭐', '💪', '🏃', '🧘', '🍽️', '☕', '🥤', '💊', '⏰'];
+
+// 新增活動類別嘅「快速加入」預設（配合 self-improvement daily building blocks）
+const PRESET_ACTIVITIES = [
+  { label: '起身', emoji: '🌅', color: '#f59e0b' },
+  { label: '保養', emoji: '🧴', color: '#ec4899' },
+  { label: '學習', emoji: '📚', color: '#10b981' },
+  { label: '食飯', emoji: '🍽️', color: '#ef4444' },
+  { label: '訓練', emoji: '🏋️', color: '#0891b2' },
+  { label: '工作', emoji: '💼', color: '#3b82f6' },
+  { label: '瞓覺', emoji: '🛏️', color: '#6366f1' },
+  { label: '反思', emoji: '📝', color: '#84cc16' },
+];
 
 const DEFAULT_SUPPLEMENT_SLOTS = [
   { id: 'breakfast', label: '早餐後', emoji: '🌅', time: '08:00', items: [{ id: 'vitc', name: '維他命 C' }, { id: 'fishoil', name: '魚油' }] },
@@ -976,18 +991,28 @@ function ActivityManager({ activities, onSave, onClose }) {
   const [adding, setAdding] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
 
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+  );
+
   const handleClose = () => { onSave(local); onClose(); };
   const addAct = (data) => { setLocal([...local, { ...data, id: `custom-${Date.now()}` }]); setAdding(false); };
+  const addPresets = (presets) => { setLocal([...local, ...presets.map((p, i) => ({ ...p, id: `custom-${Date.now()}-${i}` }))]); };
   const updateAct = (id, data) => setLocal(local.map(a => a.id === id ? { ...a, ...data } : a));
   const deleteAct = (id) => { if (!confirm('刪除呢個類別？')) return; setLocal(local.filter(a => a.id !== id)); };
-  const moveAct = (id, dir) => {
-    const idx = local.findIndex(a => a.id === id);
-    const newIdx = dir === 'up' ? idx - 1 : idx + 1;
-    if (newIdx < 0 || newIdx >= local.length) return;
-    const next = [...local];
-    [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
-    setLocal(next);
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setLocal((items) => {
+      const oldIdx = items.findIndex(a => a.id === active.id);
+      const newIdx = items.findIndex(a => a.id === over.id);
+      return arrayMove(items, oldIdx, newIdx);
+    });
   };
+
+  const existingLabels = useMemo(() => new Set(local.map(a => a.label.trim())), [local]);
 
   return (
     <Modal title="活動類別" onClose={handleClose}>
@@ -997,34 +1022,116 @@ function ActivityManager({ activities, onSave, onClose }) {
         </button>
       </div>
 
-      {local.map((act, idx) => {
-        if (editingId === act.id) return <ActivityForm key={act.id} initial={act} onSubmit={(data) => { updateAct(act.id, data); setEditingId(null); }} onCancel={() => setEditingId(null)} />;
-        return (
-          <div key={act.id} className="flex items-center gap-3 py-2.5 px-4 mb-1.5 rounded-xl bg-white border border-stone-200">
-            <span className="text-lg">{act.emoji}</span>
-            <span className="flex-1 text-sm text-stone-900 truncate" style={{ fontWeight: 500 }}>{act.label}</span>
-            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: act.color }} />
-            {reorderMode ? (
-              <div className="flex gap-1">
-                <button onClick={() => moveAct(act.id, 'up')} disabled={idx === 0} className="w-7 h-7 rounded-full bg-stone-100 flex items-center justify-center disabled:opacity-30 active:scale-95"><ArrowUp size={11} className="text-stone-600" /></button>
-                <button onClick={() => moveAct(act.id, 'down')} disabled={idx === local.length - 1} className="w-7 h-7 rounded-full bg-stone-100 flex items-center justify-center disabled:opacity-30 active:scale-95"><ArrowDown size={11} className="text-stone-600" /></button>
-              </div>
-            ) : (
-              <div className="flex gap-1">
-                <button onClick={() => setEditingId(act.id)} className="w-7 h-7 rounded-full bg-stone-100 flex items-center justify-center active:scale-95"><Pencil size={10} className="text-stone-600" /></button>
-                <button onClick={() => deleteAct(act.id)} className="w-7 h-7 rounded-full bg-stone-100 flex items-center justify-center active:scale-95"><Trash2 size={10} className="text-stone-500" /></button>
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {reorderMode && (
+        <p className="text-[11px] text-stone-500 italic mb-2 px-1" style={{ fontFamily: 'Georgia, serif' }}>按住 ⠿ 拖曳排序</p>
+      )}
 
-      {!reorderMode && (adding ? <ActivityForm onSubmit={addAct} onCancel={() => setAdding(false)} /> : (
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={local.map(a => a.id)} strategy={verticalListSortingStrategy}>
+          {local.map((act) => {
+            if (editingId === act.id) return <ActivityForm key={act.id} initial={act} onSubmit={(data) => { updateAct(act.id, data); setEditingId(null); }} onCancel={() => setEditingId(null)} />;
+            return (
+              <SortableActivityItem
+                key={act.id}
+                act={act}
+                reorderMode={reorderMode}
+                onEdit={() => setEditingId(act.id)}
+                onDelete={() => deleteAct(act.id)}
+              />
+            );
+          })}
+        </SortableContext>
+      </DndContext>
+
+      {!reorderMode && (adding ? (
+        <>
+          <QuickAddPresets existingLabels={existingLabels} onAddSelected={addPresets} />
+          <ActivityForm onSubmit={addAct} onCancel={() => setAdding(false)} />
+        </>
+      ) : (
         <button onClick={() => setAdding(true)} className="w-full mt-2 py-3 rounded-xl bg-white border border-dashed border-stone-300 text-stone-700 active:bg-stone-50 flex items-center justify-center gap-2 text-sm" style={{ fontWeight: 500 }}>
           <Plus size={14} />新增活動類別
         </button>
       ))}
     </Modal>
+  );
+}
+
+function SortableActivityItem({ act, reorderMode, onEdit, onDelete }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: act.id, disabled: !reorderMode });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    boxShadow: isDragging ? '0 10px 28px rgba(0,0,0,0.18)' : undefined,
+    zIndex: isDragging ? 10 : undefined,
+    position: 'relative',
+  };
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-center gap-3 py-2.5 px-4 mb-1.5 rounded-xl bg-white border border-stone-200">
+      {reorderMode && (
+        <button {...attributes} {...listeners} className="touch-none select-none w-7 h-7 rounded-full bg-stone-100 flex items-center justify-center flex-shrink-0 cursor-grab active:cursor-grabbing">
+          <GripVertical size={14} className="text-stone-500" />
+        </button>
+      )}
+      <span className="text-lg">{act.emoji}</span>
+      <span className="flex-1 text-sm text-stone-900 truncate" style={{ fontWeight: 500 }}>{act.label}</span>
+      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: act.color }} />
+      {!reorderMode && (
+        <div className="flex gap-1">
+          <button onClick={onEdit} className="w-7 h-7 rounded-full bg-stone-100 flex items-center justify-center active:scale-95"><Pencil size={10} className="text-stone-600" /></button>
+          <button onClick={onDelete} className="w-7 h-7 rounded-full bg-stone-100 flex items-center justify-center active:scale-95"><Trash2 size={10} className="text-stone-500" /></button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QuickAddPresets({ existingLabels, onAddSelected }) {
+  const [selected, setSelected] = useState([]);
+
+  const toggle = (label) => {
+    setSelected(sel => sel.includes(label) ? sel.filter(l => l !== label) : [...sel, label]);
+  };
+  const handleAdd = () => {
+    const toAdd = PRESET_ACTIVITIES.filter(p => selected.includes(p.label));
+    onAddSelected(toAdd);
+    setSelected([]);
+  };
+
+  return (
+    <div className="mb-3 p-3 rounded-xl bg-stone-100/60 border border-stone-200">
+      <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-2">快速加入</p>
+      <div className="grid grid-cols-4 gap-1.5 mb-2">
+        {PRESET_ACTIVITIES.map(p => {
+          const exists = existingLabels.has(p.label);
+          const isSelected = selected.includes(p.label);
+          return (
+            <button
+              key={p.label}
+              onClick={() => toggle(p.label)}
+              disabled={exists}
+              className="flex flex-col items-center gap-1 py-2.5 px-1 rounded-lg transition-all active:scale-95 disabled:active:scale-100"
+              style={{
+                background: exists ? '#e7e5e4' : (isSelected ? p.color : p.color + '15'),
+                border: `1px solid ${isSelected && !exists ? p.color : 'transparent'}`,
+                opacity: exists ? 0.55 : 1,
+              }}
+            >
+              <span className="text-lg leading-none">{p.emoji}</span>
+              <span className="text-[11px] leading-tight" style={{ color: exists ? '#78716c' : (isSelected ? 'white' : '#1c1917'), fontWeight: isSelected ? 600 : 500 }}>
+                {exists ? '已加入' : p.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {selected.length > 0 && (
+        <button onClick={handleAdd} className="w-full py-2 rounded-lg text-xs text-white bg-stone-900 active:bg-stone-700 flex items-center justify-center gap-1.5" style={{ fontWeight: 500 }}>
+          <Plus size={12} />加入選中（{selected.length}）
+        </button>
+      )}
+    </div>
   );
 }
 

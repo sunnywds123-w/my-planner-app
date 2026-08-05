@@ -90,6 +90,7 @@ const SKINCARE_KEY = 'skincare-v1';
 const SKINCARE_TIMES_KEY = 'skincare-times-v1';
 const HEALTH_RECORD_PREFIX = 'health:'; // health:YYYY-MM-DD = { supps:{}, skincare:{} }
 const SETTINGS_KEY = 'settings-v1'; // { morningStart, morningEnd, windDownStart, sleepTarget, waterGoal } — 新 key，冇舊資料需要 migrate
+const WATER_PREFIX = 'water:'; // water:YYYY-MM-DD = { total: number, log: [{time, ml}] } — 新 key，冇舊資料需要 migrate
 
 const DEFAULT_SETTINGS = {
   morningStart: '07:00',
@@ -1383,6 +1384,105 @@ function ChecklistItem({ label, checked, isNow, index, tint = 'emerald', onClick
       </div>
       <span className="text-base flex-1 text-left" style={{ color: checked ? c.text : '#1c1917', fontWeight: 500, textDecorationLine: checked ? 'line-through' : 'none', textDecorationColor: c.strike }}>{label}</span>
     </button>
+  );
+}
+
+// ============ Water Tracker（全日 ml，water:YYYY-MM-DD）============
+
+function todayWaterKey(d = new Date()) {
+  return WATER_PREFIX + fmtDate(d);
+}
+
+/**
+ * 飲水追蹤 —— 3 個「今日焦點」mode 都會 mount 呢個 component，Wind-down
+ * mode 傳 readOnly 令 +按鈕唔顯示。用返 dateKey state + 60s interval
+ * 自己 poll「而家真正嘅日期」有冇轉咗（同 NowCard 一樣嘅 self-correcting
+ * 做法），app 開住跨午夜都會自動 reset 去新一日嘅 record，唔使手動 refresh。
+ */
+function WaterTracker({ goal, readOnly }) {
+  const [dateKey, setDateKey] = useState(todayWaterKey());
+  const [data, setData] = useState({ total: 0, log: [] });
+  const [showCustom, setShowCustom] = useState(false);
+  const [customAmount, setCustomAmount] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await window.storage.get(dateKey).catch(() => null);
+        if (cancelled) return;
+        setData(r?.value ? JSON.parse(r.value) : { total: 0, log: [] });
+      } catch { if (!cancelled) setData({ total: 0, log: [] }); }
+    })();
+    return () => { cancelled = true; };
+  }, [dateKey]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const k = todayWaterKey();
+      setDateKey(prev => (prev === k ? prev : k));
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const addWater = async (ml) => {
+    if (readOnly || !(ml > 0)) return;
+    const now = new Date();
+    const entry = { time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`, ml };
+    const next = { total: data.total + ml, log: [...data.log, entry] };
+    setData(next);
+    try { await window.storage.set(dateKey, JSON.stringify(next)); } catch (e) {}
+  };
+
+  const handleCustomAdd = () => {
+    const n = Number(customAmount);
+    if (n > 0) { addWater(n); setCustomAmount(''); setShowCustom(false); }
+  };
+
+  const pct = goal > 0 ? Math.min(100, (data.total / goal) * 100) : 0;
+
+  return (
+    <div className="rounded-2xl bg-white border border-stone-200 p-4 mb-4">
+      <div className="flex items-baseline justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-base">💧</span>
+          <span className="text-sm text-stone-900" style={{ fontWeight: 600 }}>飲水</span>
+        </div>
+        <p className="text-xs text-stone-500" style={{ fontFamily: 'Georgia, serif' }}>
+          <span className="text-base text-stone-900" style={{ fontWeight: 500 }}>{data.total}</span>
+          <span className="mx-1">/</span>{goal} ml
+        </p>
+      </div>
+      <div className="h-2 rounded-full bg-stone-100 overflow-hidden" style={{ marginBottom: readOnly ? 0 : '12px' }}>
+        <div className="h-full transition-all duration-500" style={{ width: `${pct}%`, background: '#0891b2' }} />
+      </div>
+
+      {!readOnly && (
+        <>
+          <div className="flex gap-1.5">
+            <button onClick={() => addWater(250)} className="flex-1 py-2 rounded-lg text-xs bg-cyan-50 text-cyan-800 border border-cyan-200 active:scale-95" style={{ fontWeight: 500 }}>+250ml</button>
+            <button onClick={() => addWater(500)} className="flex-1 py-2 rounded-lg text-xs bg-cyan-50 text-cyan-800 border border-cyan-200 active:scale-95" style={{ fontWeight: 500 }}>+500ml</button>
+            <button onClick={() => setShowCustom(v => !v)} className="flex-1 py-2 rounded-lg text-xs bg-stone-100 text-stone-600 border border-stone-200 active:scale-95" style={{ fontWeight: 500 }}>+自訂</button>
+          </div>
+
+          {showCustom && (
+            <div className="flex gap-1.5 mt-2">
+              <input
+                type="number"
+                min="1"
+                placeholder="ml"
+                value={customAmount}
+                onChange={e => setCustomAmount(e.target.value)}
+                className="flex-1 px-3 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm outline-none focus:border-stone-400"
+                autoFocus
+              />
+              <button onClick={handleCustomAdd} className="px-4 py-2 rounded-lg text-xs text-white bg-stone-900 active:bg-stone-700" style={{ fontWeight: 500 }}>加</button>
+              <button onClick={() => { setShowCustom(false); setCustomAmount(''); }} className="px-3 py-2 rounded-lg text-xs text-stone-500 bg-stone-100">取消</button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

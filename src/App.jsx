@@ -395,7 +395,7 @@ export default function App() {
       </header>
 
       <main className="px-4 pt-3">
-        {tab === 'focus' && <FocusTab activities={activities} template={template} slots={slots} skincare={skincare} settings={settings} />}
+        {tab === 'focus' && <FocusTab activities={activities} template={template} slots={slots} skincare={skincare} skincareTimes={skincareTimes} settings={settings} />}
         {tab === 'plan' && <PlanTab activities={activities} template={template} onSaveTemplate={saveTemplate} onSaveActivities={saveActivities} />}
         {tab === 'health' && <HealthTab slots={slots} skincare={skincare} skincareTimes={skincareTimes} onSaveSlots={saveSlots} onSaveSkincare={saveSkincare} onSaveSkincareTimes={saveSkincareTimes} />}
         {tab === 'report' && <ReportTab activities={activities} template={template} slots={slots} skincare={skincare} />}
@@ -481,7 +481,7 @@ function minutesUntil(now, targetHHMM) {
   return Math.round((target - now) / 60000);
 }
 
-function FocusTab({ activities, template, slots, skincare, settings }) {
+function FocusTab({ activities, template, slots, skincare, skincareTimes, settings }) {
   const [now, setNow] = useState(new Date());
   const [record, setRecord] = useState({ supps: {}, skincare: {}, windDown: {}, steps: false });
 
@@ -527,7 +527,7 @@ function FocusTab({ activities, template, slots, skincare, settings }) {
         <MorningMode skincare={skincare} slots={slots} record={record} onToggleSkin={toggleSkin} onToggleSupp={toggleSupp} waterGoal={settings.waterGoal} proteinGoal={settings.proteinGoal} stepsChecked={record.steps} onToggleSteps={toggleSteps} />
       )}
       {mode === 'dynamic' && (
-        <DynamicMode activities={activities} template={template} todayIdx={todayIdx} slots={slots} record={record} onToggleSupp={toggleSupp} waterGoal={settings.waterGoal} proteinGoal={settings.proteinGoal} stepsChecked={record.steps} onToggleSteps={toggleSteps} />
+        <DynamicMode activities={activities} template={template} todayIdx={todayIdx} slots={slots} skincare={skincare} skincareTimes={skincareTimes} record={record} onToggleSupp={toggleSupp} onToggleSkin={toggleSkin} waterGoal={settings.waterGoal} proteinGoal={settings.proteinGoal} stepsChecked={record.steps} onToggleSteps={toggleSteps} />
       )}
       {mode === 'winddown' && (
         <WindDownMode skincare={skincare} record={record} onToggleSkin={toggleSkin} onToggleWindDown={toggleWindDown} settings={settings} now={now} waterGoal={settings.waterGoal} proteinGoal={settings.proteinGoal} stepsChecked={record.steps} onToggleSteps={toggleSteps} />
@@ -583,7 +583,7 @@ function MorningMode({ skincare, slots, record, onToggleSkin, onToggleSupp, wate
   );
 }
 
-function DynamicMode({ activities, template, todayIdx, slots, record, onToggleSupp, waterGoal, proteinGoal, stepsChecked, onToggleSteps }) {
+function DynamicMode({ activities, template, todayIdx, slots, skincare, skincareTimes, record, onToggleSupp, onToggleSkin, waterGoal, proteinGoal, stepsChecked, onToggleSteps }) {
   const [detailItem, setDetailItem] = useState(null);
   // 邊個 supp slot 最接近而家（同 SupplementsSection 個 nowSlotId 邏輯一樣，
   // 兩個鐘內先算 —— 唔喺範圍內就乜都唔顯示，唔會逼出一個唔相關嘅 list）
@@ -599,6 +599,10 @@ function DynamicMode({ activities, template, todayIdx, slots, record, onToggleSu
     });
     return nearestDiff <= 120 ? nearest : null;
   }, [slots]);
+
+  // 邊個護膚時段（am/pm）最接近而家 —— 同 nowSlot 一樣嘅 2 個鐘門檻，
+  // 複用現有 nearestSkincarePeriod（App.jsx 頂層，widget summary 都用緊呢個）
+  const nowSkinPeriod = useMemo(() => nearestSkincarePeriod(skincareTimes, new Date()), [skincareTimes]);
 
   return (
     <div>
@@ -616,6 +620,22 @@ function DynamicMode({ activities, template, todayIdx, slots, record, onToggleSu
             <p className="text-xs text-stone-400 italic px-1" style={{ fontFamily: 'Georgia, serif' }}>未有項目</p>
           ) : nowSlot.items.map(item => (
             <ChecklistItem key={item.id} label={item.name} checked={!!record.supps[`${nowSlot.id}:${item.id}`]} isNow tint="emerald" onClick={() => onToggleSupp(nowSlot.id, item.id)} onOpenDetail={() => setDetailItem(item)} />
+          ))}
+        </div>
+      )}
+
+      {nowSkinPeriod && (
+        <div className="mb-4">
+          <div className="flex items-baseline gap-2 mb-2 px-1">
+            <span className="text-lg">{nowSkinPeriod === 'am' ? '☀️' : '🌙'}</span>
+            <h3 className="text-base text-stone-900" style={{ fontWeight: 600 }}>{nowSkinPeriod === 'am' ? '早晨護膚' : '晚間護膚'}</h3>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800" style={{ fontWeight: 600 }}>Now</span>
+            <span className="text-[11px] text-stone-400 ml-auto">{skincare[nowSkinPeriod].filter(s => record.skincare[`${nowSkinPeriod}:${s.id}`]).length}/{skincare[nowSkinPeriod].length}</span>
+          </div>
+          {skincare[nowSkinPeriod].length === 0 ? (
+            <EmptyState icon={Sparkles} title="未設定護膚步驟" desc="去健康 tab 加返" />
+          ) : skincare[nowSkinPeriod].map(step => (
+            <ChecklistItem key={step.id} label={step.name} checked={!!record.skincare[`${nowSkinPeriod}:${step.id}`]} isNow tint="blue" onClick={() => onToggleSkin(nowSkinPeriod, step.id)} onOpenDetail={() => setDetailItem(step)} />
           ))}
         </div>
       )}

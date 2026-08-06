@@ -88,9 +88,10 @@ const TEMPLATE_KEY = 'plan-template-v1'; // 週 template: { "0-9": "work", ... }
 const SLOTS_KEY = 'supp-slots-v1';
 const SKINCARE_KEY = 'skincare-v1';
 const SKINCARE_TIMES_KEY = 'skincare-times-v1';
-const HEALTH_RECORD_PREFIX = 'health:'; // health:YYYY-MM-DD = { supps:{}, skincare:{} }
-const SETTINGS_KEY = 'settings-v1'; // { morningStart, morningEnd, windDownStart, sleepTarget, waterGoal } — 新 key，冇舊資料需要 migrate
+const HEALTH_RECORD_PREFIX = 'health:'; // health:YYYY-MM-DD = { supps:{}, skincare:{}, windDown:{}, steps:boolean }
+const SETTINGS_KEY = 'settings-v1'; // { morningStart, morningEnd, windDownStart, sleepTarget, waterGoal, proteinGoal } — 新 key，冇舊資料需要 migrate
 const WATER_PREFIX = 'water:'; // water:YYYY-MM-DD = { total: number, log: [{time, ml}] } — 新 key，冇舊資料需要 migrate
+const PROTEIN_PREFIX = 'protein:'; // protein:YYYY-MM-DD = { total: number, log: [{time, g}] } — 新 key，冇舊資料需要 migrate
 
 const RECORD_KEY_RE = /^(health|water):(\d{4}-\d{2}-\d{2})$/;
 
@@ -115,7 +116,10 @@ const DEFAULT_SETTINGS = {
   windDownStart: '23:00',
   sleepTarget: '00:00',
   waterGoal: 2000,
+  proteinGoal: 150,
 };
+
+const STEPS_GOAL = 10000;
 
 const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const fmtDateZh = (d) => `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
@@ -426,32 +430,40 @@ function minutesUntil(now, targetHHMM) {
 
 function FocusTab({ activities, template, slots, skincare, settings }) {
   const [now, setNow] = useState(new Date());
-  const [record, setRecord] = useState({ supps: {}, skincare: {}, windDown: {} });
+  const [record, setRecord] = useState({ supps: {}, skincare: {}, windDown: {}, steps: false });
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
 
+  // `now` 已經每分鐘 tick 一次（俾 mode 判斷用），將 dateStr 攞出嚟做 effect
+  // dependency，就可以「借」呢個 ticker 嚟做同 WaterTracker 一樣嘅 self-correcting
+  // 換日邏輯，唔使開多一個 timer；dateStr 淨係踏入第二日先會變，唔會每分鐘重讀。
+  const dateStr = fmtDate(now);
+
   useEffect(() => {
     (async () => {
       try {
-        const r = await window.storage.get(HEALTH_RECORD_PREFIX + fmtDate(new Date())).catch(() => null);
+        const r = await window.storage.get(HEALTH_RECORD_PREFIX + dateStr).catch(() => null);
         if (r?.value) {
           const p = JSON.parse(r.value);
-          setRecord({ supps: p.supps || {}, skincare: p.skincare || {}, windDown: p.windDown || {} });
+          setRecord({ supps: p.supps || {}, skincare: p.skincare || {}, windDown: p.windDown || {}, steps: !!p.steps });
+        } else {
+          setRecord({ supps: {}, skincare: {}, windDown: {}, steps: false });
         }
       } catch {}
     })();
-  }, []);
+  }, [dateStr]);
 
   const saveRecord = async (n) => {
     setRecord(n);
-    try { await window.storage.set(HEALTH_RECORD_PREFIX + fmtDate(new Date()), JSON.stringify(n)); } catch (e) {}
+    try { await window.storage.set(HEALTH_RECORD_PREFIX + dateStr, JSON.stringify(n)); } catch (e) {}
   };
   const toggleSupp = (sId, iId) => { const k = `${sId}:${iId}`; saveRecord({ ...record, supps: { ...record.supps, [k]: !record.supps[k] } }); };
   const toggleSkin = (p, id) => { const k = `${p}:${id}`; saveRecord({ ...record, skincare: { ...record.skincare, [k]: !record.skincare[k] } }); };
   const toggleWindDown = (id) => { saveRecord({ ...record, windDown: { ...record.windDown, [id]: !record.windDown[id] } }); };
+  const toggleSteps = () => { saveRecord({ ...record, steps: !record.steps }); };
 
   const mode = getFocusMode(now, settings);
   const todayIdx = jsDayToMonIdx(now.getDay());
@@ -459,13 +471,13 @@ function FocusTab({ activities, template, slots, skincare, settings }) {
   return (
     <div>
       {mode === 'morning' && (
-        <MorningMode skincare={skincare} slots={slots} record={record} onToggleSkin={toggleSkin} onToggleSupp={toggleSupp} waterGoal={settings.waterGoal} />
+        <MorningMode skincare={skincare} slots={slots} record={record} onToggleSkin={toggleSkin} onToggleSupp={toggleSupp} waterGoal={settings.waterGoal} proteinGoal={settings.proteinGoal} stepsChecked={record.steps} onToggleSteps={toggleSteps} />
       )}
       {mode === 'dynamic' && (
-        <DynamicMode activities={activities} template={template} todayIdx={todayIdx} slots={slots} record={record} onToggleSupp={toggleSupp} waterGoal={settings.waterGoal} />
+        <DynamicMode activities={activities} template={template} todayIdx={todayIdx} slots={slots} record={record} onToggleSupp={toggleSupp} waterGoal={settings.waterGoal} proteinGoal={settings.proteinGoal} stepsChecked={record.steps} onToggleSteps={toggleSteps} />
       )}
       {mode === 'winddown' && (
-        <WindDownMode skincare={skincare} record={record} onToggleSkin={toggleSkin} onToggleWindDown={toggleWindDown} settings={settings} now={now} waterGoal={settings.waterGoal} />
+        <WindDownMode skincare={skincare} record={record} onToggleSkin={toggleSkin} onToggleWindDown={toggleWindDown} settings={settings} now={now} waterGoal={settings.waterGoal} proteinGoal={settings.proteinGoal} stepsChecked={record.steps} onToggleSteps={toggleSteps} />
       )}
     </div>
   );
@@ -481,7 +493,7 @@ function FocusSectionHeader({ emoji, title, count }) {
   );
 }
 
-function MorningMode({ skincare, slots, record, onToggleSkin, onToggleSupp, waterGoal }) {
+function MorningMode({ skincare, slots, record, onToggleSkin, onToggleSupp, waterGoal, proteinGoal, stepsChecked, onToggleSteps }) {
   const amSteps = skincare.am;
   const amChecked = amSteps.filter(s => record.skincare[`am:${s.id}`]).length;
   const breakfastSlot = slots.find(s => s.label === '早餐後');
@@ -510,11 +522,13 @@ function MorningMode({ skincare, slots, record, onToggleSkin, onToggleSupp, wate
       </div>
 
       <WaterTracker goal={waterGoal} readOnly={false} />
+      <ProteinTracker goal={proteinGoal} readOnly={false} />
+      <StepsTracker checked={stepsChecked} onToggle={onToggleSteps} readOnly={false} />
     </div>
   );
 }
 
-function DynamicMode({ activities, template, todayIdx, slots, record, onToggleSupp, waterGoal }) {
+function DynamicMode({ activities, template, todayIdx, slots, record, onToggleSupp, waterGoal, proteinGoal, stepsChecked, onToggleSteps }) {
   // 邊個 supp slot 最接近而家（同 SupplementsSection 個 nowSlotId 邏輯一樣，
   // 兩個鐘內先算 —— 唔喺範圍內就乜都唔顯示，唔會逼出一個唔相關嘅 list）
   const nowSlot = useMemo(() => {
@@ -551,11 +565,13 @@ function DynamicMode({ activities, template, todayIdx, slots, record, onToggleSu
       )}
 
       <WaterTracker goal={waterGoal} readOnly={false} />
+      <ProteinTracker goal={proteinGoal} readOnly={false} />
+      <StepsTracker checked={stepsChecked} onToggle={onToggleSteps} readOnly={false} />
     </div>
   );
 }
 
-function WindDownMode({ skincare, record, onToggleSkin, onToggleWindDown, settings, now, waterGoal }) {
+function WindDownMode({ skincare, record, onToggleSkin, onToggleWindDown, settings, now, waterGoal, proteinGoal, stepsChecked, onToggleSteps }) {
   const minsLeft = minutesUntil(now, settings.sleepTarget);
   const pmSteps = skincare.pm;
   const pmChecked = pmSteps.filter(s => record.skincare[`pm:${s.id}`]).length;
@@ -590,6 +606,8 @@ function WindDownMode({ skincare, record, onToggleSkin, onToggleWindDown, settin
       </div>
 
       <WaterTracker goal={waterGoal} readOnly={true} />
+      <ProteinTracker goal={proteinGoal} readOnly={true} />
+      <StepsTracker checked={stepsChecked} onToggle={onToggleSteps} readOnly={true} />
     </div>
   );
 }
@@ -1898,7 +1916,122 @@ function WaterTracker({ goal, readOnly }) {
   );
 }
 
-// ============ Settings Modal（今日焦點 mode 時間 + 水量目標）============
+// ============ Protein Tracker（全日 g，protein:YYYY-MM-DD，UI/UX 跟 WaterTracker 一樣）============
+
+function todayProteinKey(d = new Date()) {
+  return PROTEIN_PREFIX + fmtDate(d);
+}
+
+function ProteinTracker({ goal, readOnly }) {
+  const [dateKey, setDateKey] = useState(todayProteinKey());
+  const [data, setData] = useState({ total: 0, log: [] });
+  const [showCustom, setShowCustom] = useState(false);
+  const [customAmount, setCustomAmount] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await window.storage.get(dateKey).catch(() => null);
+        if (cancelled) return;
+        setData(r?.value ? JSON.parse(r.value) : { total: 0, log: [] });
+      } catch { if (!cancelled) setData({ total: 0, log: [] }); }
+    })();
+    return () => { cancelled = true; };
+  }, [dateKey]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const k = todayProteinKey();
+      setDateKey(prev => (prev === k ? prev : k));
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const addProtein = async (g) => {
+    if (readOnly || !(g > 0)) return;
+    const now = new Date();
+    const entry = { time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`, g };
+    const next = { total: data.total + g, log: [...data.log, entry] };
+    setData(next);
+    try { await window.storage.set(dateKey, JSON.stringify(next)); } catch (e) {}
+  };
+
+  const handleCustomAdd = () => {
+    const n = Number(customAmount);
+    if (n > 0) { addProtein(n); setCustomAmount(''); setShowCustom(false); }
+  };
+
+  const pct = goal > 0 ? Math.min(100, (data.total / goal) * 100) : 0;
+
+  return (
+    <div className="rounded-2xl bg-white border border-stone-200 p-4 mb-4">
+      <div className="flex items-baseline justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <span className="text-base">🍗</span>
+          <span className="text-sm text-stone-900" style={{ fontWeight: 600 }}>蛋白質</span>
+        </div>
+        <p className="text-xs text-stone-500" style={{ fontFamily: 'Georgia, serif' }}>
+          <span className="text-base text-stone-900" style={{ fontWeight: 500 }}>{data.total}</span>
+          <span className="mx-1">/</span>{goal} g
+        </p>
+      </div>
+      <div className="h-2 rounded-full bg-stone-100 overflow-hidden" style={{ marginBottom: readOnly ? 0 : '12px' }}>
+        <div className="h-full transition-all duration-500" style={{ width: `${pct}%`, background: '#f59e0b' }} />
+      </div>
+
+      {!readOnly && (
+        <>
+          <div className="flex gap-1.5">
+            <button onClick={() => addProtein(10)} className="flex-1 py-2 rounded-lg text-xs bg-amber-50 text-amber-800 border border-amber-200 active:scale-95" style={{ fontWeight: 500 }}>+10g</button>
+            <button onClick={() => addProtein(20)} className="flex-1 py-2 rounded-lg text-xs bg-amber-50 text-amber-800 border border-amber-200 active:scale-95" style={{ fontWeight: 500 }}>+20g</button>
+            <button onClick={() => setShowCustom(v => !v)} className="flex-1 py-2 rounded-lg text-xs bg-stone-100 text-stone-600 border border-stone-200 active:scale-95" style={{ fontWeight: 500 }}>+自訂</button>
+          </div>
+
+          {showCustom && (
+            <div className="flex gap-1.5 mt-2">
+              <input
+                type="number"
+                min="1"
+                placeholder="g"
+                value={customAmount}
+                onChange={e => setCustomAmount(e.target.value)}
+                className="flex-1 px-3 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm outline-none focus:border-stone-400"
+                autoFocus
+              />
+              <button onClick={handleCustomAdd} className="px-4 py-2 rounded-lg text-xs text-white bg-stone-900 active:bg-stone-700" style={{ fontWeight: 500 }}>加</button>
+              <button onClick={() => { setShowCustom(false); setCustomAmount(''); }} className="px-3 py-2 rounded-lg text-xs text-stone-500 bg-stone-100">取消</button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============ Steps Tracker（今日步數達標 checkbox，寫入 health:YYYY-MM-DD 嘅 steps 欄位）============
+
+function StepsTracker({ checked, onToggle, readOnly }) {
+  return (
+    <button
+      onClick={readOnly ? undefined : onToggle}
+      disabled={readOnly}
+      className="w-full rounded-2xl border p-4 mb-4 flex items-center gap-3 transition-all active:scale-[0.98] disabled:active:scale-100"
+      style={{
+        background: checked ? '#ecfdf5' : '#ffffff',
+        borderColor: checked ? '#10b981' : '#e7e5e4',
+      }}
+    >
+      <span className="text-base">👟</span>
+      <span className="flex-1 text-left text-sm text-stone-900" style={{ fontWeight: 600 }}>{STEPS_GOAL.toLocaleString()} 步</span>
+      <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: checked ? '#10b981' : 'transparent', border: checked ? 'none' : '2px solid #d6d3d1' }}>
+        {checked && <Check size={14} color="white" strokeWidth={3} />}
+      </div>
+    </button>
+  );
+}
+
+// ============ Settings Modal（今日焦點 mode 時間 + 水量／蛋白質目標）============
 
 function SettingsModal({ settings, onSave, onClose }) {
   const [local, setLocal] = useState(settings);
@@ -1909,11 +2042,12 @@ function SettingsModal({ settings, onSave, onClose }) {
   // 時間點」，唔需要喺呢度用同日比較去卡佢
   const morningValid = local.morningStart < local.morningEnd;
   const waterGoalValid = Number(local.waterGoal) > 0;
-  const canSave = morningValid && waterGoalValid;
+  const proteinGoalValid = Number(local.proteinGoal) > 0;
+  const canSave = morningValid && waterGoalValid && proteinGoalValid;
 
   const handleSave = () => {
     if (!canSave) return;
-    onSave({ ...local, waterGoal: Number(local.waterGoal) });
+    onSave({ ...local, waterGoal: Number(local.waterGoal), proteinGoal: Number(local.proteinGoal) });
     onClose();
   };
 
@@ -1984,6 +2118,22 @@ function SettingsModal({ settings, onSave, onClose }) {
             className="w-full px-3 py-2.5 rounded-lg bg-stone-50 border border-stone-200 text-sm outline-none focus:border-stone-400"
           />
           {!waterGoalValid && (
+            <p className="text-[11px] text-red-600 mt-1">要大過 0</p>
+          )}
+        </div>
+        <div className="mt-3">
+          <label className="text-xs text-stone-600 mb-1.5 flex items-center gap-1.5">
+            <span className="text-base">🍗</span>每日蛋白質目標（g）
+          </label>
+          <input
+            type="number"
+            min="0"
+            step="10"
+            value={local.proteinGoal}
+            onChange={e => setLocal({ ...local, proteinGoal: e.target.value })}
+            className="w-full px-3 py-2.5 rounded-lg bg-stone-50 border border-stone-200 text-sm outline-none focus:border-stone-400"
+          />
+          {!proteinGoalValid && (
             <p className="text-[11px] text-red-600 mt-1">要大過 0</p>
           )}
         </div>

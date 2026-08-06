@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser, Star } from 'lucide-react';
 import { DndContext, closestCenter, useSensor, useSensors, MouseSensor, TouchSensor } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
@@ -184,6 +184,9 @@ export default function App() {
   const [savedFlash, setSavedFlash] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const swRegistrationRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -283,6 +286,47 @@ export default function App() {
     };
   }, [activities, template, slots, skincare, skincareTimes, settings]);
 
+  // 手寫 service worker 註冊 + 「有新版本」偵測（見 public/sw.js）。
+  // 淨係做版本偵測 + 提示 UI，SW 本身冇 fetch handler、冇快取任何嘢，
+  // 唔會影響 localStorage 資料。
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+
+    let reloaded = false;
+    const handleControllerChange = () => {
+      if (reloaded) return;
+      reloaded = true;
+      window.location.reload();
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+
+    navigator.serviceWorker.register('/sw.js').then((registration) => {
+      swRegistrationRef.current = registration;
+      registration.addEventListener('updatefound', () => {
+        const newWorker = registration.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          // installed + 已經有 controller，即係唔係第一次安裝，係真係有新版本喺 waiting
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            setUpdateAvailable(true);
+          }
+        });
+      });
+    }).catch((e) => { console.error('Service worker 註冊失敗', e); });
+
+    return () => {
+      navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
+    };
+  }, []);
+
+  const handleUpdateClick = () => {
+    setUpdating(true);
+    const waiting = swRegistrationRef.current?.waiting;
+    if (waiting) {
+      waiting.postMessage({ type: 'SKIP_WAITING' });
+    }
+  };
+
   const flashSaved = () => { setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1000); };
   const saveActivities = async (n) => { setActivities(n); try { await window.storage.set(ACTIVITIES_KEY, JSON.stringify(n)); flashSaved(); } catch(e){} };
   const saveTemplate = async (n) => { setTemplate(n); try { await window.storage.set(TEMPLATE_KEY, JSON.stringify(n)); flashSaved(); } catch(e){} };
@@ -355,6 +399,8 @@ export default function App() {
           {savedFlash ? <span className="flex items-center gap-1.5"><Check size={14} className="text-emerald-600" /><span className="text-emerald-700">已儲存</span></span> : <span style={{ fontFamily: 'Georgia, serif' }} className="italic">自動儲存</span>}
         </div>
       </footer>
+
+      <UpdateBanner show={updateAvailable} updating={updating} onUpdate={handleUpdateClick} />
 
       {showBackup && (
         <BackupModal
@@ -1791,6 +1837,33 @@ function EmptyState({ icon: Icon, title, desc }) {
       <Icon size={28} className="mx-auto text-stone-400 mb-3" />
       <p className="text-base text-stone-700 mb-1" style={{ fontWeight: 500 }}>{title}</p>
       <p className="text-xs text-stone-500 italic" style={{ fontFamily: 'Georgia, serif' }}>{desc}</p>
+    </div>
+  );
+}
+
+// ============ 更新提示 Banner（有新版本先顯示，唔然完全唔 render）============
+
+function UpdateBanner({ show, updating, onUpdate }) {
+  if (!show) return null;
+  return (
+    <div
+      className="fixed left-4 right-4 z-50"
+      style={{ bottom: 'calc(76px + env(safe-area-inset-bottom, 0px))' }}
+    >
+      <div
+        className="rounded-2xl bg-stone-900 px-4 py-3 flex items-center gap-3"
+        style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}
+      >
+        <span className="text-sm text-white flex-1">有新版本可用</span>
+        <button
+          onClick={onUpdate}
+          disabled={updating}
+          className="px-3 py-1.5 rounded-full bg-white text-stone-900 text-xs active:scale-95 disabled:opacity-60 flex-shrink-0"
+          style={{ fontWeight: 600 }}
+        >
+          {updating ? '更新中…' : '立即更新'}
+        </button>
+      </div>
     </div>
   );
 }

@@ -125,6 +125,49 @@ const formatHour = (h) => `${h.toString().padStart(2, '0')}:00`;
 // 將 JS day (0=Sun) 轉做我哋嘅 (0=Mon, 6=Sun)
 const jsDayToMonIdx = (d) => d === 0 ? 6 : d - 1;
 
+// ============ 純 function：NowCard 同 window.getWidgetSummary 共用 ============
+
+// 由 template 讀返「而家」同「下一個」轉時段嘅活動
+function findCurrentAndNextActivity(activities, template, todayIdx, currentHour) {
+  const currentActId = template[`${todayIdx}-${currentHour}`];
+  const currentAct = currentActId ? activities.find(a => a.id === currentActId) : null;
+  let nextHour = null;
+  let nextAct = null;
+  for (let h = currentHour + 1; h < 24; h++) {
+    const actId = template[`${todayIdx}-${h}`];
+    if (actId && actId !== currentActId) {
+      nextHour = h;
+      nextAct = activities.find(a => a.id === actId);
+      break;
+    }
+  }
+  return { currentAct, nextHour, nextAct };
+}
+
+// 邊個 supplement 時段最接近而家（兩個鐘內）—— 跟 SupplementsSection 個 nowSlotId 一樣嘅邏輯
+function nearestSupplementSlot(slots, now) {
+  if (!slots || slots.length === 0) return null;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  let nearest = null, nearestDiff = Infinity;
+  slots.forEach(s => {
+    const [h, m] = (s.time || '08:00').split(':').map(Number);
+    const diff = Math.abs(h * 60 + m - nowMin);
+    if (diff < nearestDiff) { nearestDiff = diff; nearest = s; }
+  });
+  return nearestDiff <= 120 ? nearest : null;
+}
+
+// 而家係 am 定 pm 護膚時段（兩個鐘內）—— 跟 SkincareSection 個 nowPeriod 一樣嘅邏輯
+function nearestSkincarePeriod(skincareTimes, now) {
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const [ah, am] = (skincareTimes.am || '07:00').split(':').map(Number);
+  const [ph, pm] = (skincareTimes.pm || '22:00').split(':').map(Number);
+  const amDiff = Math.abs(ah * 60 + am - nowMin);
+  const pmDiff = Math.abs(ph * 60 + pm - nowMin);
+  if (Math.min(amDiff, pmDiff) > 120) return null;
+  return amDiff < pmDiff ? 'am' : 'pm';
+}
+
 export default function App() {
   const [tab, setTab] = useState('focus');
   const [activities, setActivities] = useState(DEFAULT_ACTIVITIES);
@@ -168,6 +211,73 @@ export default function App() {
       } finally { setLoading(false); }
     })();
   }, []);
+
+  // 俾外部（例如 iOS Scriptable widget 用 hidden WebView）讀「今日焦點」摘要。
+  // 純粹包裝現有計算結果（唔重複寫邏輯、唔改任何 UI），任何一欄攞唔到都用
+  // null / 空 array 頂住，唔會令成個 function throw error。
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.getWidgetSummary = () => {
+      const now = new Date();
+      const fallback = {
+        date: fmtDate(now),
+        currentActivity: null,
+        nextActivity: null,
+        water: { current: 0, goal: settings.waterGoal ?? DEFAULT_SETTINGS.waterGoal },
+        activeBadges: [],
+        isWindDown: false,
+        windDownStart: settings.windDownStart ?? DEFAULT_SETTINGS.windDownStart,
+      };
+      try {
+        const todayIdx = jsDayToMonIdx(now.getDay());
+
+        let currentActivity = null;
+        let nextActivity = null;
+        try {
+          const { currentAct, nextHour, nextAct } = findCurrentAndNextActivity(activities, template, todayIdx, now.getHours());
+          if (currentAct) {
+            currentActivity = { label: currentAct.label, emoji: currentAct.emoji, timeRange: `${formatHour(now.getHours())}-${formatHour(now.getHours() + 1)}` };
+          }
+          if (nextAct && nextHour !== null) {
+            nextActivity = { label: nextAct.label, emoji: nextAct.emoji, startTime: formatHour(nextHour) };
+          }
+        } catch (e) { console.error('getWidgetSummary：活動計算失敗', e); }
+
+        let water = fallback.water;
+        try {
+          const raw = localStorage.getItem(WATER_PREFIX + fmtDate(now));
+          const parsed = raw ? JSON.parse(raw) : null;
+          water = { current: parsed?.total || 0, goal: settings.waterGoal ?? DEFAULT_SETTINGS.waterGoal };
+        } catch (e) { console.error('getWidgetSummary：飲水計算失敗', e); }
+
+        const activeBadges = [];
+        try {
+          const slot = nearestSupplementSlot(slots, now);
+          if (slot) activeBadges.push({ type: 'supplement', label: slot.label, emoji: slot.emoji });
+        } catch (e) { console.error('getWidgetSummary：supplement badge 失敗', e); }
+        try {
+          const period = nearestSkincarePeriod(skincareTimes, now);
+          if (period) activeBadges.push({ type: 'skincare', label: period === 'am' ? '早晨護膚' : '晚間護膚', emoji: period === 'am' ? '☀️' : '🌙' });
+        } catch (e) { console.error('getWidgetSummary：skincare badge 失敗', e); }
+
+        let isWindDown = false;
+        try { isWindDown = getFocusMode(now, settings) === 'winddown'; } catch (e) { console.error('getWidgetSummary：wind-down 判斷失敗', e); }
+
+        return {
+          date: fmtDate(now),
+          currentActivity,
+          nextActivity,
+          water,
+          activeBadges,
+          isWindDown,
+          windDownStart: settings.windDownStart ?? DEFAULT_SETTINGS.windDownStart,
+        };
+      } catch (e) {
+        console.error('getWidgetSummary 失敗', e);
+        return fallback;
+      }
+    };
+  }, [activities, template, slots, skincare, skincareTimes, settings]);
 
   const flashSaved = () => { setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1000); };
   const saveActivities = async (n) => { setActivities(n); try { await window.storage.set(ACTIVITIES_KEY, JSON.stringify(n)); flashSaved(); } catch(e){} };
@@ -2340,20 +2450,7 @@ function NowCard({ activities, template, todayIdx }) {
   }, []);
 
   const currentHour = now.getHours();
-  const currentActId = template[`${todayIdx}-${currentHour}`];
-  const currentAct = currentActId ? activities.find(a => a.id === currentActId) : null;
-
-  // 搵下一個轉時段
-  let nextHour = null;
-  let nextAct = null;
-  for (let h = currentHour + 1; h < 24; h++) {
-    const actId = template[`${todayIdx}-${h}`];
-    if (actId && actId !== currentActId) {
-      nextHour = h;
-      nextAct = activities.find(a => a.id === actId);
-      break;
-    }
-  }
+  const { currentAct, nextHour, nextAct } = findCurrentAndNextActivity(activities, template, todayIdx, currentHour);
 
   const nowMinutes = now.getMinutes();
   const minutesToNext = nextHour !== null ? (nextHour - currentHour) * 60 - nowMinutes : null;

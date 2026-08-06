@@ -92,6 +92,23 @@ const HEALTH_RECORD_PREFIX = 'health:'; // health:YYYY-MM-DD = { supps:{}, skinc
 const SETTINGS_KEY = 'settings-v1'; // { morningStart, morningEnd, windDownStart, sleepTarget, waterGoal } — 新 key，冇舊資料需要 migrate
 const WATER_PREFIX = 'water:'; // water:YYYY-MM-DD = { total: number, log: [{time, ml}] } — 新 key，冇舊資料需要 migrate
 
+const RECORD_KEY_RE = /^(health|water):(\d{4}-\d{2}-\d{2})$/;
+
+// 掃描所有 health:/water: 記錄 key，揀返日期範圍內、指定類型嘅
+async function scanDateRecords(startStr, endStr, types) {
+  const listResult = await window.storage.list();
+  const keys = listResult?.keys || [];
+  const matched = { health: [], water: [] };
+  keys.forEach(key => {
+    const m = key.match(RECORD_KEY_RE);
+    if (!m) return;
+    const [, type, dateStr] = m;
+    if (!types[type]) return;
+    if (dateStr >= startStr && dateStr <= endStr) matched[type].push(key);
+  });
+  return matched;
+}
+
 const DEFAULT_SETTINGS = {
   morningStart: '07:00',
   morningEnd: '09:00',
@@ -231,27 +248,23 @@ export default function App() {
             if (k) await saveSkincare(k);
             if (kt) await saveSkincareTimes(kt);
           }}
-          onClearRecords={async (startDate, endDate) => {
-            // 掃全部 record key，刪除範圍內嘅
-            const startStr = fmtDate(startDate);
-            const endStr = fmtDate(endDate);
-            let deleted = 0;
+          onPreviewClearRecords={async (startDate, endDate, types) => {
+            const matched = await scanDateRecords(fmtDate(startDate), fmtDate(endDate), types);
+            return { health: matched.health.length, water: matched.water.length };
+          }}
+          onClearRecords={async (startDate, endDate, types) => {
+            // 掃範圍內、選中類型嘅 record key 逐個刪除
+            const result = { health: 0, water: 0 };
             try {
-              const listResult = await window.storage.list(HEALTH_RECORD_PREFIX);
-              const keys = listResult?.keys || [];
-              for (const key of keys) {
-                const dateStr = key.substring(HEALTH_RECORD_PREFIX.length);
-                if (dateStr >= startStr && dateStr <= endStr) {
-                  await window.storage.delete(key);
-                  deleted++;
-                }
-              }
+              const matched = await scanDateRecords(fmtDate(startDate), fmtDate(endDate), types);
+              for (const key of matched.health) { await window.storage.delete(key); result.health++; }
+              for (const key of matched.water) { await window.storage.delete(key); result.water++; }
             } catch (e) {
               console.error('清除記錄失敗', e);
               throw e;
             }
             flashSaved();
-            return deleted;
+            return result;
           }}
           onClose={() => setShowBackup(false)}
         />
@@ -1792,7 +1805,7 @@ function SettingsModal({ settings, onSave, onClose }) {
 
 // ============ Backup Modal（匯出／匯入設定）============
 
-function BackupModal({ data, onImport, onClearRecords, onClose }) {
+function BackupModal({ data, onImport, onClearRecords, onPreviewClearRecords, onClose }) {
   const [mode, setMode] = useState('export'); // export | import | clear
   const [importText, setImportText] = useState('');
   const [copied, setCopied] = useState(false);
@@ -1803,6 +1816,9 @@ function BackupModal({ data, onImport, onClearRecords, onClose }) {
   const oneMonthAgo = new Date(today.getTime() - 30 * 86400000);
   const [clearStart, setClearStart] = useState(fmtDate(oneMonthAgo));
   const [clearEnd, setClearEnd] = useState(fmtDate(today));
+  const [clearHealth, setClearHealth] = useState(true);
+  const [clearWater, setClearWater] = useState(true);
+  const [previewCounts, setPreviewCounts] = useState(null); // { health, water } | null
   const [clearing, setClearing] = useState(false);
 
   // 生成備份字串：版本號 + 時間 + 資料
@@ -1880,27 +1896,62 @@ function BackupModal({ data, onImport, onClearRecords, onClose }) {
     }
   };
 
-  // 計算清除範圍嘅日數
+  // 日期範圍驗證：開始 <= 結束、最多一年
   const startDateObj = new Date(clearStart + 'T00:00:00');
   const endDateObj = new Date(clearEnd + 'T00:00:00');
-  const daysToDelete = clearStart && clearEnd && endDateObj >= startDateObj
-    ? Math.floor((endDateObj - startDateObj) / 86400000) + 1
-    : 0;
-  const clearRangeValid = daysToDelete > 0 && daysToDelete <= 366;
+  const rangeOrderValid = !!clearStart && !!clearEnd && endDateObj >= startDateObj;
+  const daysSpan = rangeOrderValid ? Math.floor((endDateObj - startDateObj) / 86400000) + 1 : 0;
+  const rangeSizeValid = rangeOrderValid && daysSpan <= 366;
+  const anyTypeSelected = clearHealth || clearWater;
+  const selectedTypes = { health: clearHealth, water: clearWater };
+
+  // 日期範圍／類型一改變，就重新掃描實際符合嘅記錄數量（唔淨係計日曆日數）
+  useEffect(() => {
+    if (!rangeSizeValid || !anyTypeSelected) { setPreviewCounts(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const counts = await onPreviewClearRecords(startDateObj, endDateObj, { health: clearHealth, water: clearWater });
+        if (!cancelled) setPreviewCounts(counts);
+      } catch {
+        if (!cancelled) setPreviewCounts(null);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clearStart, clearEnd, clearHealth, clearWater, rangeSizeValid, anyTypeSelected]);
+
+  // 將 { health, water } 計數，砌成「N 日嘅活動記錄 + N 日嘅飲水記錄」呢類句子（只計揀咗嘅類型）
+  const recordParts = (counts, unit) => {
+    if (!counts) return [];
+    const parts = [];
+    if (clearHealth) parts.push(`${counts.health} ${unit}活動記錄`);
+    if (clearWater) parts.push(`${counts.water} ${unit}飲水記錄`);
+    return parts;
+  };
+  const totalPreview = previewCounts ? (clearHealth ? previewCounts.health : 0) + (clearWater ? previewCounts.water : 0) : 0;
+  const canDelete = anyTypeSelected && rangeSizeValid && previewCounts !== null && totalPreview > 0 && !clearing;
 
   const handleClearRecords = async () => {
     setStatus(null);
-    if (!clearRangeValid) {
-      setStatus({ type: 'error', msg: '日期範圍唔啱，最多一年' });
-      return;
-    }
-    const confirmMsg = `確定清除 ${clearStart} 至 ${clearEnd}（共 ${daysToDelete} 日）嘅記錄？\n\n此動作無法還原。\n（活動類別、週計劃、Supp 時段、護膚步驟嘅設定唔會受影響）`;
+    if (!anyTypeSelected) { setStatus({ type: 'error', msg: '請揀返要刪除嘅記錄類型' }); return; }
+    if (!rangeOrderValid) { setStatus({ type: 'error', msg: '開始日期唔可以遲過結束日期' }); return; }
+    if (!rangeSizeValid) { setStatus({ type: 'error', msg: '日期範圍唔啱，最多一年' }); return; }
+    if (!previewCounts || totalPreview === 0) { setStatus({ type: 'error', msg: '呢個範圍內冇紀錄' }); return; }
+
+    const summary = recordParts(previewCounts, '日嘅').join(' + ');
+    const confirmMsg = `確定刪除 ${clearStart} 至 ${clearEnd} 嘅記錄？\n\n${summary}\n\n此動作無法還原。\n（活動類別、週計劃、Supp 時段、護膚步驟等設定唔會受影響）`;
     if (!confirm(confirmMsg)) return;
 
     setClearing(true);
     try {
-      const deleted = await onClearRecords(startDateObj, endDateObj);
-      setStatus({ type: 'success', msg: `已清除 ${deleted} 日記錄` });
+      const result = await onClearRecords(startDateObj, endDateObj, selectedTypes);
+      setStatus({ type: 'success', msg: `已刪除 ${recordParts(result, '條').join(' + ')}` });
+      // 刪完之後，將啱啱刪走嗰啲類型嘅 preview 計數歸零，避免顯示舊數字
+      setPreviewCounts(prev => ({
+        health: clearHealth ? 0 : (prev?.health ?? 0),
+        water: clearWater ? 0 : (prev?.water ?? 0),
+      }));
     } catch (e) {
       setStatus({ type: 'error', msg: '清除失敗，請再試' });
     } finally {
@@ -2050,7 +2101,7 @@ function BackupModal({ data, onImport, onClearRecords, onClose }) {
       {mode === 'clear' && (
         <div>
           <p className="text-xs text-stone-500 italic mb-3 px-1" style={{ fontFamily: 'Georgia, serif' }}>
-            揀範圍清除每日 check 記錄。設定唔會受影響。
+            揀範圍同類型，刪除每日 check 記錄。設定唔會受影響。
           </p>
 
           {/* Date pickers */}
@@ -2060,7 +2111,7 @@ function BackupModal({ data, onImport, onClearRecords, onClose }) {
               <input
                 type="date"
                 value={clearStart}
-                onChange={e => setClearStart(e.target.value)}
+                onChange={e => { setClearStart(e.target.value); setStatus(null); }}
                 max={clearEnd || fmtDate(new Date())}
                 className="w-full px-3 py-2.5 rounded-lg bg-stone-50 border border-stone-200 text-sm outline-none focus:border-stone-400"
                 style={{ fontFamily: 'inherit' }}
@@ -2071,12 +2122,15 @@ function BackupModal({ data, onImport, onClearRecords, onClose }) {
               <input
                 type="date"
                 value={clearEnd}
-                onChange={e => setClearEnd(e.target.value)}
+                onChange={e => { setClearEnd(e.target.value); setStatus(null); }}
                 min={clearStart}
                 className="w-full px-3 py-2.5 rounded-lg bg-stone-50 border border-stone-200 text-sm outline-none focus:border-stone-400"
                 style={{ fontFamily: 'inherit' }}
               />
             </div>
+            {!rangeOrderValid && clearStart && clearEnd && (
+              <p className="text-xs text-red-600 mt-2">⚠️ 開始日期唔可以遲過結束日期</p>
+            )}
           </div>
 
           {/* Quick range buttons */}
@@ -2105,19 +2159,51 @@ function BackupModal({ data, onImport, onClearRecords, onClose }) {
             </div>
           </div>
 
+          {/* Record type checkboxes */}
+          <div className="rounded-xl bg-white border border-stone-200 p-4 mb-3">
+            <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-2">記錄類型</p>
+            <label className="flex items-center gap-2.5 py-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={clearHealth}
+                onChange={e => { setClearHealth(e.target.checked); setStatus(null); }}
+                className="w-4 h-4 rounded accent-stone-900"
+              />
+              <span className="text-sm text-stone-800">活動完成記錄（Supplement／護膚 check）</span>
+            </label>
+            <label className="flex items-center gap-2.5 py-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={clearWater}
+                onChange={e => { setClearWater(e.target.checked); setStatus(null); }}
+                className="w-4 h-4 rounded accent-stone-900"
+              />
+              <span className="text-sm text-stone-800">飲水追蹤記錄</span>
+            </label>
+          </div>
+
           {/* Preview */}
           <div className="rounded-xl bg-white border border-stone-200 p-3 mb-3">
-            <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-2">將會清除</p>
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl text-stone-900" style={{ fontFamily: 'Georgia, serif', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-                {daysToDelete}
-              </span>
-              <span className="text-sm text-stone-500">日嘅記錄</span>
-            </div>
-            {daysToDelete > 0 && (
-              <p className="text-xs text-stone-500 mt-1" style={{ fontFamily: 'Georgia, serif' }}>
-                {clearStart} 至 {clearEnd}
-              </p>
+            <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-2">將會刪除</p>
+            {!anyTypeSelected ? (
+              <p className="text-sm text-stone-500 italic">請揀返要刪除嘅記錄類型</p>
+            ) : !rangeOrderValid ? (
+              <p className="text-sm text-stone-500 italic">請揀返有效嘅日期範圍</p>
+            ) : !rangeSizeValid ? (
+              <p className="text-sm text-red-600">日期範圍最多一年</p>
+            ) : previewCounts === null ? (
+              <p className="text-sm text-stone-400 italic">計算緊...</p>
+            ) : totalPreview === 0 ? (
+              <p className="text-sm text-stone-500 italic">呢個範圍內冇紀錄</p>
+            ) : (
+              <>
+                <p className="text-sm text-stone-900" style={{ fontWeight: 500 }}>
+                  {recordParts(previewCounts, '日嘅').join(' + ')}
+                </p>
+                <p className="text-xs text-stone-500 mt-1" style={{ fontFamily: 'Georgia, serif' }}>
+                  {clearStart} 至 {clearEnd}
+                </p>
+              </>
             )}
           </div>
 
@@ -2136,19 +2222,19 @@ function BackupModal({ data, onImport, onClearRecords, onClose }) {
 
           <button
             onClick={handleClearRecords}
-            disabled={!clearRangeValid || clearing}
+            disabled={!canDelete}
             className="w-full py-3.5 rounded-xl flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-30"
             style={{ background: '#dc2626', color: 'white', fontWeight: 500 }}
           >
             <Eraser size={16} />
-            <span>{clearing ? '清除中...' : `清除 ${daysToDelete} 日記錄`}</span>
+            <span>{clearing ? '刪除中...' : canDelete ? `確定刪除（${totalPreview}）` : '確定刪除'}</span>
           </button>
 
           <div className="mt-4 rounded-xl bg-amber-50 border border-amber-200 p-3">
             <p className="text-xs text-amber-900 leading-relaxed">
-              <b>ℹ️ 呢個 action 只會清除：</b><br/>
-              • 每日 Supplement check 記錄<br/>
-              • 每日護膚 check 記錄<br/><br/>
+              <b>ℹ️ 呢個 action 可以清除：</b><br/>
+              • 每日 Supplement／護膚 check 記錄（活動完成記錄）<br/>
+              • 每日飲水記錄<br/><br/>
               <b>唔會影響：</b>活動類別、週計劃、Supp 時段、護膚步驟等**設定**。
             </p>
           </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser, Star } from 'lucide-react';
+import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser, Star, ExternalLink } from 'lucide-react';
 import { DndContext, closestCenter, useSensor, useSensors, MouseSensor, TouchSensor } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -129,6 +129,10 @@ const formatHour = (h) => `${h.toString().padStart(2, '0')}:00`;
 // 將 JS day (0=Sun) 轉做我哋嘅 (0=Mon, 6=Sun)
 const jsDayToMonIdx = (d) => d === 0 ? 6 : d - 1;
 
+// Migration：supplement/skincare item 補齊 brand/purchaseLink/imageUrl（Rule 5：
+// optional 新欄位，舊資料冇就 fallback 做空字串，唔會令現有 item 顯示出錯）
+const normalizeItem = (it) => ({ ...it, brand: it.brand || '', purchaseLink: it.purchaseLink || '', imageUrl: it.imageUrl || '' });
+
 // ============ 純 function：NowCard 同 window.getWidgetSummary 共用 ============
 
 // 由 template 讀返「而家」同「下一個」轉時段嘅活動
@@ -207,11 +211,14 @@ export default function App() {
         if (t?.value) setTemplate(JSON.parse(t.value));
         if (s?.value) {
           const parsed = JSON.parse(s.value);
-          // Migration：舊資料冇 time field，加返 default
-          const migrated = parsed.map(sl => ({ ...sl, time: sl.time || '08:00' }));
+          // Migration：舊資料冇 time field，加返 default；items 入面補齊 brand/purchaseLink/imageUrl
+          const migrated = parsed.map(sl => ({ ...sl, time: sl.time || '08:00', items: (sl.items || []).map(normalizeItem) }));
           setSlots(migrated);
         }
-        if (k?.value) setSkincare(JSON.parse(k.value));
+        if (k?.value) {
+          const parsed = JSON.parse(k.value);
+          setSkincare({ am: (parsed.am || []).map(normalizeItem), pm: (parsed.pm || []).map(normalizeItem) });
+        }
         if (st?.value) setSkincareTimes(JSON.parse(st.value));
         // settings-v1 係全新 key，讀唔到就用 default，唔係 error（Rule 5）
         if (se?.value) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(se.value) });
@@ -540,6 +547,7 @@ function FocusSectionHeader({ emoji, title, count }) {
 }
 
 function MorningMode({ skincare, slots, record, onToggleSkin, onToggleSupp, waterGoal, proteinGoal, stepsChecked, onToggleSteps }) {
+  const [detailItem, setDetailItem] = useState(null);
   const amSteps = skincare.am;
   const amChecked = amSteps.filter(s => record.skincare[`am:${s.id}`]).length;
   const breakfastSlot = slots.find(s => s.label === '早餐後');
@@ -554,7 +562,7 @@ function MorningMode({ skincare, slots, record, onToggleSkin, onToggleSupp, wate
         {amSteps.length === 0 ? (
           <EmptyState icon={Sparkles} title="未設定護膚步驟" desc="去健康 tab 加返" />
         ) : amSteps.map((step, idx) => (
-          <ChecklistItem key={step.id} label={step.name} checked={!!record.skincare[`am:${step.id}`]} index={idx + 1} tint="blue" onClick={() => onToggleSkin('am', step.id)} />
+          <ChecklistItem key={step.id} label={step.name} checked={!!record.skincare[`am:${step.id}`]} index={idx + 1} tint="blue" onClick={() => onToggleSkin('am', step.id)} onOpenDetail={() => setDetailItem(step)} />
         ))}
       </div>
 
@@ -563,18 +571,20 @@ function MorningMode({ skincare, slots, record, onToggleSkin, onToggleSupp, wate
         {!breakfastSlot || breakfastSlot.items.length === 0 ? (
           <EmptyState icon={Pill} title='未設定「早餐後」時段' desc="去健康 tab 加返" />
         ) : breakfastSlot.items.map(item => (
-          <ChecklistItem key={item.id} label={item.name} checked={!!record.supps[`${breakfastSlot.id}:${item.id}`]} tint="emerald" onClick={() => onToggleSupp(breakfastSlot.id, item.id)} />
+          <ChecklistItem key={item.id} label={item.name} checked={!!record.supps[`${breakfastSlot.id}:${item.id}`]} tint="emerald" onClick={() => onToggleSupp(breakfastSlot.id, item.id)} onOpenDetail={() => setDetailItem(item)} />
         ))}
       </div>
 
       <WaterTracker goal={waterGoal} readOnly={false} />
       <ProteinTracker goal={proteinGoal} readOnly={false} />
       <StepsTracker checked={stepsChecked} onToggle={onToggleSteps} readOnly={false} />
+      {detailItem && <ItemDetailModal item={detailItem} onClose={() => setDetailItem(null)} />}
     </div>
   );
 }
 
 function DynamicMode({ activities, template, todayIdx, slots, record, onToggleSupp, waterGoal, proteinGoal, stepsChecked, onToggleSteps }) {
+  const [detailItem, setDetailItem] = useState(null);
   // 邊個 supp slot 最接近而家（同 SupplementsSection 個 nowSlotId 邏輯一樣，
   // 兩個鐘內先算 —— 唔喺範圍內就乜都唔顯示，唔會逼出一個唔相關嘅 list）
   const nowSlot = useMemo(() => {
@@ -605,7 +615,7 @@ function DynamicMode({ activities, template, todayIdx, slots, record, onToggleSu
           {nowSlot.items.length === 0 ? (
             <p className="text-xs text-stone-400 italic px-1" style={{ fontFamily: 'Georgia, serif' }}>未有項目</p>
           ) : nowSlot.items.map(item => (
-            <ChecklistItem key={item.id} label={item.name} checked={!!record.supps[`${nowSlot.id}:${item.id}`]} isNow tint="emerald" onClick={() => onToggleSupp(nowSlot.id, item.id)} />
+            <ChecklistItem key={item.id} label={item.name} checked={!!record.supps[`${nowSlot.id}:${item.id}`]} isNow tint="emerald" onClick={() => onToggleSupp(nowSlot.id, item.id)} onOpenDetail={() => setDetailItem(item)} />
           ))}
         </div>
       )}
@@ -613,11 +623,13 @@ function DynamicMode({ activities, template, todayIdx, slots, record, onToggleSu
       <WaterTracker goal={waterGoal} readOnly={false} />
       <ProteinTracker goal={proteinGoal} readOnly={false} />
       <StepsTracker checked={stepsChecked} onToggle={onToggleSteps} readOnly={false} />
+      {detailItem && <ItemDetailModal item={detailItem} onClose={() => setDetailItem(null)} />}
     </div>
   );
 }
 
 function WindDownMode({ skincare, record, onToggleSkin, onToggleWindDown, settings, now, waterGoal, proteinGoal, stepsChecked, onToggleSteps }) {
+  const [detailItem, setDetailItem] = useState(null);
   const minsLeft = minutesUntil(now, settings.sleepTarget);
   const pmSteps = skincare.pm;
   const pmChecked = pmSteps.filter(s => record.skincare[`pm:${s.id}`]).length;
@@ -642,7 +654,7 @@ function WindDownMode({ skincare, record, onToggleSkin, onToggleWindDown, settin
         {pmSteps.length === 0 ? (
           <EmptyState icon={Sparkles} title="未設定護膚步驟" desc="去健康 tab 加返" />
         ) : pmSteps.map((step, idx) => (
-          <ChecklistItem key={step.id} label={step.name} checked={!!record.skincare[`pm:${step.id}`]} index={idx + 1} tint="blue" onClick={() => onToggleSkin('pm', step.id)} />
+          <ChecklistItem key={step.id} label={step.name} checked={!!record.skincare[`pm:${step.id}`]} index={idx + 1} tint="blue" onClick={() => onToggleSkin('pm', step.id)} onOpenDetail={() => setDetailItem(step)} />
         ))}
       </div>
 
@@ -654,6 +666,7 @@ function WindDownMode({ skincare, record, onToggleSkin, onToggleWindDown, settin
       <WaterTracker goal={waterGoal} readOnly={true} />
       <ProteinTracker goal={proteinGoal} readOnly={true} />
       <StepsTracker checked={stepsChecked} onToggle={onToggleSteps} readOnly={true} />
+      {detailItem && <ItemDetailModal item={detailItem} onClose={() => setDetailItem(null)} />}
     </div>
   );
 }
@@ -940,6 +953,7 @@ function HealthTab({ slots, skincare, skincareTimes, onSaveSlots, onSaveSkincare
 
 function SupplementsSection({ slots, record, onToggle, onSaveSlots, isToday }) {
   const [managing, setManaging] = useState(false);
+  const [detailItem, setDetailItem] = useState(null);
   const totalItems = slots.reduce((s, sl) => s + sl.items.length, 0);
   const checkedItems = slots.reduce((s, sl) => s + sl.items.filter(i => record.supps[`${sl.id}:${i.id}`]).length, 0);
 
@@ -999,7 +1013,7 @@ function SupplementsSection({ slots, record, onToggle, onSaveSlots, isToday }) {
           ) : slot.items.map(item => {
             const checked = !!record.supps[`${slot.id}:${item.id}`];
             return (
-              <ChecklistItem key={item.id} label={item.name} checked={checked} isNow={isNow} tint="emerald" onClick={() => onToggle(slot.id, item.id)} />
+              <ChecklistItem key={item.id} label={item.name} checked={checked} isNow={isNow} tint="emerald" onClick={() => onToggle(slot.id, item.id)} onOpenDetail={() => setDetailItem(item)} />
             );
           })}
         </div>
@@ -1007,6 +1021,7 @@ function SupplementsSection({ slots, record, onToggle, onSaveSlots, isToday }) {
       })}
 
       {managing && <SupplementManager slots={slots} onSave={onSaveSlots} onClose={() => setManaging(false)} />}
+      {detailItem && <ItemDetailModal item={detailItem} onClose={() => setDetailItem(null)} />}
     </div>
   );
 }
@@ -1014,6 +1029,7 @@ function SupplementsSection({ slots, record, onToggle, onSaveSlots, isToday }) {
 function SkincareSection({ skincare, skincareTimes, record, onToggle, onSaveSkincare, onSaveSkincareTimes, isToday }) {
   const [managing, setManaging] = useState(null);
   const [editingTimes, setEditingTimes] = useState(false);
+  const [detailItem, setDetailItem] = useState(null);
 
   // 決定「而家」係 am 定 pm
   const nowPeriod = useMemo(() => {
@@ -1062,7 +1078,7 @@ function SkincareSection({ skincare, skincareTimes, record, onToggle, onSaveSkin
             ) : steps.map((step, idx) => {
               const isChecked = !!record.skincare[`${period}:${step.id}`];
               return (
-                <ChecklistItem key={step.id} label={step.name} checked={isChecked} isNow={isNow} index={idx + 1} tint="blue" onClick={() => onToggle(period, step.id)} />
+                <ChecklistItem key={step.id} label={step.name} checked={isChecked} isNow={isNow} index={idx + 1} tint="blue" onClick={() => onToggle(period, step.id)} onOpenDetail={() => setDetailItem(step)} />
               );
             })}
           </div>
@@ -1071,6 +1087,7 @@ function SkincareSection({ skincare, skincareTimes, record, onToggle, onSaveSkin
 
       {managing && <SkincareManager period={managing} steps={skincare[managing]} onSave={(s) => onSaveSkincare({ ...skincare, [managing]: s })} onClose={() => setManaging(null)} />}
       {editingTimes && <SkincareTimesModal times={skincareTimes} onSave={onSaveSkincareTimes} onClose={() => setEditingTimes(false)} />}
+      {detailItem && <ItemDetailModal item={detailItem} onClose={() => setDetailItem(null)} />}
     </div>
   );
 }
@@ -1674,9 +1691,10 @@ function SupplementManager({ slots, onSave, onClose }) {
     [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
     setLocal(next);
   };
-  const addItem = (sId, name) => setLocal(local.map(s => s.id === sId ? { ...s, items: [...s.items, { id: `item-${Date.now()}`, name }] } : s));
-  const updateItem = (sId, iId, name) => setLocal(local.map(s => s.id === sId ? { ...s, items: s.items.map(i => i.id === iId ? { ...i, name } : i) } : s));
+  const addItem = (sId, data) => setLocal(local.map(s => s.id === sId ? { ...s, items: [...s.items, { brand: '', purchaseLink: '', imageUrl: '', ...data, id: `item-${Date.now()}` }] } : s));
+  const updateItem = (sId, iId, data) => setLocal(local.map(s => s.id === sId ? { ...s, items: s.items.map(i => i.id === iId ? { ...i, ...data } : i) } : s));
   const deleteItem = (sId, iId) => setLocal(local.map(s => s.id === sId ? { ...s, items: s.items.filter(i => i.id !== iId) } : s));
+  const reorderItems = (sId, newItems) => setLocal(local.map(s => s.id === sId ? { ...s, items: newItems } : s));
 
   return (
     <Modal title="管理 Supplements" onClose={handleClose}>
@@ -1707,7 +1725,7 @@ function SupplementManager({ slots, onSave, onClose }) {
                   </div>
                 )}
               </div>
-              {!reorderMode && <ItemsEditor items={slot.items} onAdd={(n) => addItem(slot.id, n)} onUpdate={(iId, n) => updateItem(slot.id, iId, n)} onDelete={(iId) => deleteItem(slot.id, iId)} placeholder="例如：維他命 C" />}
+              {!reorderMode && <ItemsEditor items={slot.items} onAdd={(d) => addItem(slot.id, d)} onUpdate={(iId, d) => updateItem(slot.id, iId, d)} onDelete={(iId) => deleteItem(slot.id, iId)} onReorder={(newItems) => reorderItems(slot.id, newItems)} placeholder="例如：維他命 C" />}
             </div>
           )}
         </div>
@@ -1752,64 +1770,125 @@ function SlotForm({ initial, onSubmit, onCancel }) {
 function SkincareManager({ period, steps, onSave, onClose }) {
   const [local, setLocal] = useState(steps);
   const handleClose = () => { onSave(local); onClose(); };
-  const addStep = (n) => setLocal([...local, { id: `step-${Date.now()}`, name: n }]);
-  const updateStep = (id, n) => setLocal(local.map(s => s.id === id ? { ...s, name: n } : s));
+  const addStep = (data) => setLocal([...local, { brand: '', purchaseLink: '', imageUrl: '', ...data, id: `step-${Date.now()}` }]);
+  const updateStep = (id, data) => setLocal(local.map(s => s.id === id ? { ...s, ...data } : s));
   const deleteStep = (id) => setLocal(local.filter(s => s.id !== id));
-  const moveStep = (id, dir) => {
-    const idx = local.findIndex(s => s.id === id);
-    const newIdx = dir === 'up' ? idx - 1 : idx + 1;
-    if (newIdx < 0 || newIdx >= local.length) return;
-    const next = [...local];
-    [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
-    setLocal(next);
-  };
 
   return (
     <Modal title={`管理${period === 'am' ? '早晨' : '晚間'}護膚`} onClose={handleClose}>
-      <ItemsEditor items={local} onAdd={addStep} onUpdate={updateStep} onDelete={deleteStep} onMove={moveStep} placeholder="例如：潔面" numbered />
+      <ItemsEditor items={local} onAdd={addStep} onUpdate={updateStep} onDelete={deleteStep} onReorder={setLocal} placeholder="例如：潔面" numbered />
     </Modal>
   );
 }
 
 // ============ Items Editor ============
 
-function ItemsEditor({ items, onAdd, onUpdate, onDelete, onMove, placeholder, numbered }) {
+function ItemsEditor({ items, onAdd, onUpdate, onDelete, onReorder, placeholder, numbered }) {
   const [editingId, setEditingId] = useState(null);
-  const [editText, setEditText] = useState('');
-  const [newText, setNewText] = useState('');
+  const [adding, setAdding] = useState(false);
 
-  const startEdit = (item) => { setEditingId(item.id); setEditText(item.name); };
-  const commitEdit = () => { if (editText.trim() && editingId) onUpdate(editingId, editText.trim()); setEditingId(null); setEditText(''); };
-  const handleAdd = () => { if (newText.trim()) { onAdd(newText.trim()); setNewText(''); } };
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+  );
+
+  const startEdit = (item) => { setEditingId(item.id); setAdding(false); };
+  const handleUpdate = (data) => { onUpdate(editingId, data); setEditingId(null); };
+  const handleAdd = (data) => { onAdd(data); setAdding(false); };
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = items.findIndex(i => i.id === active.id);
+    const newIdx = items.findIndex(i => i.id === over.id);
+    onReorder(arrayMove(items, oldIdx, newIdx));
+  };
+
+  const rows = items.map((item, idx) => (
+    editingId === item.id ? (
+      <ItemForm key={item.id} initial={item} placeholder={placeholder} onSubmit={handleUpdate} onCancel={() => setEditingId(null)} />
+    ) : (
+      <SortableItemRow
+        key={item.id}
+        item={item}
+        index={idx}
+        numbered={numbered}
+        draggable={!!onReorder}
+        onEdit={() => startEdit(item)}
+        onDelete={() => onDelete(item.id)}
+      />
+    )
+  ));
 
   return (
     <div className="p-3">
-      {items.length === 0 && <p className="text-xs text-stone-400 italic text-center py-3" style={{ fontFamily: 'Georgia, serif' }}>未有項目</p>}
-      {items.map((item, idx) => (
-        <div key={item.id} className="flex items-center gap-2 mb-1.5">
-          {numbered && <span className="text-xs w-5 text-center text-stone-400" style={{ fontFamily: 'Georgia, serif', fontWeight: 600 }}>{idx + 1}</span>}
-          {editingId === item.id ? (
-            <input type="text" value={editText} onChange={e => setEditText(e.target.value)} onBlur={commitEdit} onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') { setEditingId(null); setEditText(''); } }} autoFocus className="flex-1 px-3 py-2 rounded-lg bg-white border-2 border-stone-900 text-sm outline-none" />
-          ) : (
-            <>
-              <span className="flex-1 px-3 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm text-stone-800">{item.name}</span>
-              {onMove && (
-                <>
-                  <button onClick={() => onMove(item.id, 'up')} disabled={idx === 0} className="w-7 h-7 rounded-full bg-white border border-stone-200 flex items-center justify-center disabled:opacity-30 active:scale-95"><ArrowUp size={10} className="text-stone-600" /></button>
-                  <button onClick={() => onMove(item.id, 'down')} disabled={idx === items.length - 1} className="w-7 h-7 rounded-full bg-white border border-stone-200 flex items-center justify-center disabled:opacity-30 active:scale-95"><ArrowDown size={10} className="text-stone-600" /></button>
-                </>
-              )}
-              <button onClick={() => startEdit(item)} className="w-7 h-7 rounded-full bg-white border border-stone-200 flex items-center justify-center active:scale-95"><Pencil size={10} className="text-stone-600" /></button>
-              <button onClick={() => onDelete(item.id)} className="w-7 h-7 rounded-full bg-white border border-stone-200 flex items-center justify-center active:scale-95"><Trash2 size={10} className="text-stone-500" /></button>
-            </>
-          )}
-        </div>
-      ))}
+      {items.length === 0 && !adding && <p className="text-xs text-stone-400 italic text-center py-3" style={{ fontFamily: 'Georgia, serif' }}>未有項目</p>}
+      {onReorder ? (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}>
+            {rows}
+          </SortableContext>
+        </DndContext>
+      ) : rows}
 
-      <div className="flex items-center gap-2 mt-2">
-        {numbered && <span className="w-5" />}
-        <input type="text" value={newText} onChange={e => setNewText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleAdd(); }} placeholder={placeholder} className="flex-1 px-3 py-2 rounded-lg bg-white border border-stone-200 text-sm outline-none focus:border-stone-400" />
-        <button onClick={handleAdd} disabled={!newText.trim()} className="w-9 h-9 rounded-full bg-stone-900 text-white flex items-center justify-center disabled:opacity-30 active:scale-95"><Plus size={14} /></button>
+      {adding ? (
+        <ItemForm placeholder={placeholder} onSubmit={handleAdd} onCancel={() => setAdding(false)} />
+      ) : (
+        <button onClick={() => { setAdding(true); setEditingId(null); }} className="w-full mt-1 py-2.5 rounded-lg bg-white border border-dashed border-stone-300 text-stone-600 active:bg-stone-50 flex items-center justify-center gap-1.5 text-xs" style={{ fontWeight: 500 }}>
+          <Plus size={12} />新增項目
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SortableItemRow({ item, index, numbered, draggable, onEdit, onDelete }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id, disabled: !draggable });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    boxShadow: isDragging ? '0 8px 20px rgba(0,0,0,0.15)' : undefined,
+    zIndex: isDragging ? 10 : undefined,
+    position: 'relative',
+  };
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-center gap-2 mb-1.5">
+      {draggable && (
+        <button {...attributes} {...listeners} className="touch-none select-none w-7 h-7 rounded-full bg-white border border-stone-200 flex items-center justify-center flex-shrink-0 cursor-grab active:cursor-grabbing">
+          <GripVertical size={12} className="text-stone-400" />
+        </button>
+      )}
+      {numbered && <span className="text-xs w-5 text-center text-stone-400 flex-shrink-0" style={{ fontFamily: 'Georgia, serif', fontWeight: 600 }}>{index + 1}</span>}
+      <span className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm text-stone-800 truncate">{item.name}</span>
+      <button onClick={onEdit} className="w-7 h-7 rounded-full bg-white border border-stone-200 flex items-center justify-center active:scale-95 flex-shrink-0"><Pencil size={10} className="text-stone-600" /></button>
+      <button onClick={onDelete} className="w-7 h-7 rounded-full bg-white border border-stone-200 flex items-center justify-center active:scale-95 flex-shrink-0"><Trash2 size={10} className="text-stone-500" /></button>
+    </div>
+  );
+}
+
+// 加/編輯項目嘅表單，跟 SlotForm/ActivityForm 一樣嘅視覺風格（堆疊式 labeled input + 儲存/取消）
+function ItemForm({ initial, onSubmit, onCancel, placeholder }) {
+  const [name, setName] = useState(initial?.name || '');
+  const [brand, setBrand] = useState(initial?.brand || '');
+  const [purchaseLink, setPurchaseLink] = useState(initial?.purchaseLink || '');
+  const [imageUrl, setImageUrl] = useState(initial?.imageUrl || '');
+
+  const handleSubmit = () => {
+    if (!name.trim()) return;
+    onSubmit({ name: name.trim(), brand: brand.trim(), purchaseLink: purchaseLink.trim(), imageUrl: imageUrl.trim() });
+  };
+
+  return (
+    <div className="p-3 mb-1.5 rounded-xl bg-white border-2 border-stone-900">
+      <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-2">{initial ? '編輯' : '新增'}項目</p>
+      <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder={placeholder || '名稱'} autoFocus className="w-full px-3 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm mb-2 outline-none focus:border-stone-400" />
+      <input type="text" value={brand} onChange={e => setBrand(e.target.value)} placeholder="品牌（選填）" className="w-full px-3 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm mb-2 outline-none focus:border-stone-400" />
+      <input type="url" value={purchaseLink} onChange={e => setPurchaseLink(e.target.value)} placeholder="購買連結（選填）" className="w-full px-3 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm mb-2 outline-none focus:border-stone-400" />
+      <input type="url" value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="圖片網址（選填）" className="w-full px-3 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm mb-3 outline-none focus:border-stone-400" />
+      <div className="flex gap-2">
+        <button onClick={onCancel} className="flex-1 py-2 rounded-lg text-xs text-stone-600 bg-stone-100">取消</button>
+        <button onClick={handleSubmit} disabled={!name.trim()} className="flex-1 py-2 rounded-lg text-xs text-white bg-stone-900 disabled:opacity-30" style={{ fontWeight: 500 }}>{initial ? '儲存' : '加入'}</button>
       </div>
     </div>
   );
@@ -1828,6 +1907,61 @@ function Modal({ title, children, onClose }) {
         <div className="px-5 pb-6">{children}</div>
       </div>
     </div>
+  );
+}
+
+// ============ 產品詳情 Modal（Supplement/Skincare item 撳箭嘴掣睇詳情，共用畀 6 個 checklist 位置）============
+
+function ItemDetailModal({ item, onClose }) {
+  const [imgError, setImgError] = useState(false);
+  if (!item) return null;
+
+  const hasBrand = !!item.brand;
+  const hasLink = !!item.purchaseLink;
+  const hasImageUrl = !!item.imageUrl;
+  const hasAnyInfo = hasBrand || hasLink || hasImageUrl;
+
+  return (
+    <Modal title={item.name} onClose={onClose}>
+      {!hasAnyInfo ? (
+        <p className="text-sm text-stone-500 italic text-center py-6" style={{ fontFamily: 'Georgia, serif' }}>未設定產品資訊</p>
+      ) : (
+        <div>
+          {hasImageUrl && (
+            imgError ? (
+              <div className="w-full aspect-square rounded-xl mb-4 bg-stone-100 flex items-center justify-center">
+                <p className="text-xs text-stone-400 italic" style={{ fontFamily: 'Georgia, serif' }}>圖片讀取失敗</p>
+              </div>
+            ) : (
+              <img
+                src={item.imageUrl}
+                alt={item.name}
+                onError={() => setImgError(true)}
+                className="w-full aspect-square object-cover rounded-xl mb-4 bg-stone-100"
+              />
+            )
+          )}
+          {hasBrand && (
+            <div className="mb-4">
+              <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-1">品牌</p>
+              <p className="text-sm text-stone-900" style={{ fontWeight: 500 }}>{item.brand}</p>
+            </div>
+          )}
+          {hasLink && (
+            <a
+              href={item.purchaseLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-3 rounded-xl flex items-center justify-center gap-2 active:scale-[0.98]"
+              style={{ background: '#1c1917', color: 'white', fontWeight: 500 }}
+            >
+              <ExternalLink size={14} />
+              <span>前往購買</span>
+            </a>
+          )}
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -1875,18 +2009,25 @@ const CHECKLIST_TINTS = {
   blue: { bg: '#eff6ff', border: '#3b82f6', text: '#1e3a8a', strike: '#3b82f680', indexText: '#1e40af' },
 };
 
-function ChecklistItem({ label, checked, isNow, index, tint = 'emerald', onClick }) {
+function ChecklistItem({ label, checked, isNow, index, tint = 'emerald', onClick, onOpenDetail }) {
   const c = CHECKLIST_TINTS[tint];
   return (
-    <button onClick={onClick} className="w-full mb-1.5 rounded-xl flex items-center gap-3 py-3 px-4 transition-all active:scale-[0.98]" style={{ background: checked ? c.bg : (isNow ? '#fffbeb' : '#ffffff'), border: `1px solid ${checked ? c.border : (isNow ? '#fbbf24' : '#e7e5e4')}` }}>
-      {index !== undefined && (
-        <span className="text-xs w-5 text-center flex-shrink-0" style={{ color: checked ? (c.indexText || c.text) : '#a8a29e', fontFamily: 'Georgia, serif', fontWeight: 600 }}>{index}</span>
+    <div className="w-full mb-1.5 rounded-xl flex items-center transition-all" style={{ background: checked ? c.bg : (isNow ? '#fffbeb' : '#ffffff'), border: `1px solid ${checked ? c.border : (isNow ? '#fbbf24' : '#e7e5e4')}` }}>
+      <button onClick={onClick} className="flex-1 min-w-0 flex items-center gap-3 py-3 pl-4 pr-2 active:scale-[0.98] transition-transform text-left">
+        {index !== undefined && (
+          <span className="text-xs w-5 text-center flex-shrink-0" style={{ color: checked ? (c.indexText || c.text) : '#a8a29e', fontFamily: 'Georgia, serif', fontWeight: 600 }}>{index}</span>
+        )}
+        <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: checked ? c.border : 'transparent', border: checked ? 'none' : '2px solid #d6d3d1' }}>
+          {checked && <Check size={14} color="white" strokeWidth={3} />}
+        </div>
+        <span className="text-base flex-1 truncate" style={{ color: checked ? c.text : '#1c1917', fontWeight: 500, textDecorationLine: checked ? 'line-through' : 'none', textDecorationColor: c.strike }}>{label}</span>
+      </button>
+      {onOpenDetail && (
+        <button onClick={onOpenDetail} aria-label="睇詳情" className="w-9 h-9 flex-shrink-0 flex items-center justify-center active:scale-90 mr-1">
+          <ChevronRight size={16} className="text-stone-400" />
+        </button>
       )}
-      <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: checked ? c.border : 'transparent', border: checked ? 'none' : '2px solid #d6d3d1' }}>
-        {checked && <Check size={14} color="white" strokeWidth={3} />}
-      </div>
-      <span className="text-base flex-1 text-left" style={{ color: checked ? c.text : '#1c1917', fontWeight: 500, textDecorationLine: checked ? 'line-through' : 'none', textDecorationColor: c.strike }}>{label}</span>
-    </button>
+    </div>
   );
 }
 

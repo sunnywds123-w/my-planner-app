@@ -33,13 +33,13 @@ if (typeof window !== 'undefined' && !window.storage) {
 
 
 const DEFAULT_ACTIVITIES = [
-  { id: 'work', label: '工作', emoji: '💼', color: '#3b82f6' },
-  { id: 'play', label: '玩樂', emoji: '🎮', color: '#ec4899' },
-  { id: 'rest', label: '休息', emoji: '☕', color: '#a855f7' },
-  { id: 'teach', label: '教學', emoji: '🎓', color: '#f59e0b' },
-  { id: 'study', label: '學習', emoji: '📚', color: '#10b981' },
-  { id: 'meal', label: '食飯', emoji: '🍽️', color: '#ef4444' },
-  { id: 'training', label: '訓練', emoji: '🏋️', color: '#0891b2' },
+  { id: 'work', label: '工作', emoji: '💼', color: '#3b82f6', important: false },
+  { id: 'play', label: '玩樂', emoji: '🎮', color: '#ec4899', important: false },
+  { id: 'rest', label: '休息', emoji: '☕', color: '#a855f7', important: false },
+  { id: 'teach', label: '教學', emoji: '🎓', color: '#f59e0b', important: false },
+  { id: 'study', label: '學習', emoji: '📚', color: '#10b981', important: false },
+  { id: 'meal', label: '食飯', emoji: '🍽️', color: '#ef4444', important: false },
+  { id: 'training', label: '訓練', emoji: '🏋️', color: '#0891b2', important: false },
 ];
 
 const COLOR_PALETTE = ['#ef4444', '#f59e0b', '#eab308', '#84cc16', '#10b981', '#0891b2', '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#78716c', '#1c1917'];
@@ -149,7 +149,11 @@ export default function App() {
           window.storage.get(SKINCARE_TIMES_KEY).catch(() => null),
           window.storage.get(SETTINGS_KEY).catch(() => null),
         ]);
-        if (a?.value) setActivities(JSON.parse(a.value));
+        if (a?.value) {
+          // Migration：舊資料冇 important 欄位，fallback 做 false，唔會令類別消失或者出錯
+          const parsedActs = JSON.parse(a.value);
+          setActivities(parsedActs.map(act => ({ ...act, important: !!act.important })));
+        }
         if (t?.value) setTemplate(JSON.parse(t.value));
         if (s?.value) {
           const parsed = JSON.parse(s.value);
@@ -1046,6 +1050,8 @@ function StatsSection({ activities, template }) {
         </div>
       </div>
 
+      {totalHours > 0 && <ImportantAnalysis activities={activities} stats={stats} totalHours={totalHours} />}
+
       {totalHours === 0 ? (
         <EmptyState icon={BarChart3} title="未有計劃" desc="去「計劃」tab 填寫先" />
       ) : (
@@ -1088,6 +1094,80 @@ function StatsSection({ activities, template }) {
               </div>
             </details>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 「瞓覺性質」類別靠 label 文字識別（含「瞓」或「睡」），唔另加欄位
+const SLEEP_LABEL_RE = /瞓|睡/;
+// 自我增值時數門檻：30 分鐘。Template 現時逐格係成粒鐘計，無半粒鐘資料，
+// 所以呢個門檻實務上等於「0 小時」先會觸發；寫成 0.5 小時保留語意，
+// 將來如果 template granularity 變幼咗都仲啱用。
+const SELF_IMPROVEMENT_MIN_HOURS = 0.5;
+
+function ImportantAnalysis({ activities, stats, totalHours }) {
+  const importantActs = activities.filter(a => a.important);
+  const anySelected = importantActs.length > 0;
+
+  if (!anySelected) {
+    return (
+      <div className="rounded-2xl bg-white border border-stone-200 p-4 mb-3" style={{ boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
+        <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-2">重要 vs 不重要</p>
+        <p className="text-sm text-stone-500 italic" style={{ fontFamily: 'Georgia, serif' }}>未設定重要事項，前往設定揀選</p>
+      </div>
+    );
+  }
+
+  const importantHours = importantActs.reduce((sum, a) => sum + (stats[a.id] || 0), 0);
+  const unimportantHours = totalHours - importantHours;
+  const importantPct = totalHours > 0 ? (importantHours / totalHours * 100) : 0;
+  const unimportantPct = totalHours > 0 ? 100 - importantPct : 0;
+
+  const sleepActs = importantActs.filter(a => SLEEP_LABEL_RE.test(a.label));
+  const hasSleepCategory = sleepActs.length > 0;
+  const sleepHours = sleepActs.reduce((sum, a) => sum + (stats[a.id] || 0), 0);
+  const selfImprovementHours = importantHours - sleepHours;
+
+  const showLowImportantWarning = importantPct < 30;
+  const showLowSelfImprovementWarning = hasSleepCategory && selfImprovementHours < SELF_IMPROVEMENT_MIN_HOURS;
+
+  return (
+    <div className="rounded-2xl bg-white border border-stone-200 p-4 mb-3" style={{ boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
+      <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-3">重要 vs 不重要</p>
+
+      <div className="flex gap-4 mb-3">
+        <div className="flex-1">
+          <p className="text-xs text-stone-500 mb-1">重要事項</p>
+          <p className="flex items-baseline gap-1">
+            <span className="text-2xl text-stone-900" style={{ fontFamily: 'Georgia, serif', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{importantHours}</span>
+            <span className="text-xs text-stone-500">小時 · {importantPct.toFixed(0)}%</span>
+          </p>
+        </div>
+        <div className="flex-1">
+          <p className="text-xs text-stone-500 mb-1">不重要事項</p>
+          <p className="flex items-baseline gap-1">
+            <span className="text-2xl text-stone-900" style={{ fontFamily: 'Georgia, serif', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{unimportantHours}</span>
+            <span className="text-xs text-stone-500">小時 · {unimportantPct.toFixed(0)}%</span>
+          </p>
+        </div>
+      </div>
+
+      <div className="h-2 rounded-full bg-stone-100 overflow-hidden flex mb-3">
+        <div style={{ width: `${importantPct}%`, background: '#f59e0b' }} />
+        <div style={{ width: `${unimportantPct}%`, background: '#d6d3d1' }} />
+      </div>
+
+      {showLowImportantWarning && (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 p-2.5 mb-2">
+          <p className="text-xs text-amber-900 leading-relaxed">⚠️ 重要事項時間比重偏低（現時 {importantPct.toFixed(0)}%），建議適當調整分配</p>
+        </div>
+      )}
+
+      {showLowSelfImprovementWarning && (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 p-2.5">
+          <p className="text-xs text-amber-900 leading-relaxed">⚠️ 自我增值時間接近 0，可能被睡眠時數掩蓋咗整體比例</p>
         </div>
       )}
     </div>
@@ -1229,8 +1309,8 @@ function ActivityManager({ activities, onSave, onClose }) {
   );
 
   const handleClose = () => { onSave(local); onClose(); };
-  const addAct = (data) => { setLocal([...local, { ...data, id: `custom-${Date.now()}` }]); setAdding(false); };
-  const addPresets = (presets) => { setLocal([...local, ...presets.map((p, i) => ({ ...p, id: `custom-${Date.now()}-${i}` }))]); };
+  const addAct = (data) => { setLocal([...local, { important: false, ...data, id: `custom-${Date.now()}` }]); setAdding(false); };
+  const addPresets = (presets) => { setLocal([...local, ...presets.map((p, i) => ({ important: false, ...p, id: `custom-${Date.now()}-${i}` }))]); };
   const updateAct = (id, data) => setLocal(local.map(a => a.id === id ? { ...a, ...data } : a));
   const deleteAct = (id) => { if (!confirm('刪除呢個類別？')) return; setLocal(local.filter(a => a.id !== id)); };
 
@@ -1269,6 +1349,7 @@ function ActivityManager({ activities, onSave, onClose }) {
                 reorderMode={reorderMode}
                 onEdit={() => setEditingId(act.id)}
                 onDelete={() => deleteAct(act.id)}
+                onToggleImportant={() => updateAct(act.id, { important: !act.important })}
               />
             );
           })}
@@ -1289,7 +1370,7 @@ function ActivityManager({ activities, onSave, onClose }) {
   );
 }
 
-function SortableActivityItem({ act, reorderMode, onEdit, onDelete }) {
+function SortableActivityItem({ act, reorderMode, onEdit, onDelete, onToggleImportant }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: act.id, disabled: !reorderMode });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -1311,6 +1392,9 @@ function SortableActivityItem({ act, reorderMode, onEdit, onDelete }) {
       <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: act.color }} />
       {!reorderMode && (
         <div className="flex gap-1">
+          <button onClick={onToggleImportant} title="列為重要事項" className="w-7 h-7 rounded-full bg-stone-100 flex items-center justify-center active:scale-95">
+            <Star size={12} className={act.important ? 'text-amber-500' : 'text-stone-400'} fill={act.important ? 'currentColor' : 'none'} />
+          </button>
           <button onClick={onEdit} className="w-7 h-7 rounded-full bg-stone-100 flex items-center justify-center active:scale-95"><Pencil size={10} className="text-stone-600" /></button>
           <button onClick={onDelete} className="w-7 h-7 rounded-full bg-stone-100 flex items-center justify-center active:scale-95"><Trash2 size={10} className="text-stone-500" /></button>
         </div>

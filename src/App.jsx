@@ -866,6 +866,7 @@ function PlanTab({ activities, template, onSaveTemplate, onSaveActivities }) {
   const [currentDay, setCurrentDay] = useState(jsDayToMonIdx(new Date().getDay()));
   const [openPicker, setOpenPicker] = useState(null);
   const [managing, setManaging] = useState(false);
+  const [showCopyDay, setShowCopyDay] = useState(false);
 
   const cellKey = (day, hour) => `${day}-${hour}`;
   const getActivity = (id) => activities.find(a => a.id === id);
@@ -887,6 +888,26 @@ function PlanTab({ activities, template, onSaveTemplate, onSaveActivities }) {
       if (!k.startsWith(`${day}-`)) next[k] = template[k];
     });
     onSaveTemplate(next);
+  };
+
+  // 複製 sourceDay 成日安排去 targetDays：每個 target 先清空自己原有嘅
+  // entries，再用 source 嗰啲 hour→activityId 對應改用 target 嘅 key 寫入，
+  // 一次過用 onSaveTemplate 寫晒，唔逐日分開寫
+  const handleCopyDay = (sourceDay, targetDays) => {
+    if (targetDays.length === 0) return;
+    const dayLabels = [...targetDays].sort((a, b) => a - b).map(d => DAYS[d].label).join('、');
+    if (!confirm(`確定複製到${dayLabels}？呢幾日原本嘅安排會被覆蓋。`)) return;
+    const next = { ...template };
+    targetDays.forEach(d => {
+      Object.keys(next).forEach(k => { if (k.startsWith(`${d}-`)) delete next[k]; });
+    });
+    HOURS.forEach(hour => {
+      const actId = template[cellKey(sourceDay, hour)];
+      if (!actId) return;
+      targetDays.forEach(d => { next[cellKey(d, hour)] = actId; });
+    });
+    onSaveTemplate(next);
+    setShowCopyDay(false);
   };
 
   const dayFilledCount = HOURS.filter(h => template[cellKey(currentDay, h)]).length;
@@ -933,6 +954,9 @@ function PlanTab({ activities, template, onSaveTemplate, onSaveActivities }) {
               <p className="text-xs text-stone-500" style={{ fontFamily: 'Georgia, serif' }}>
                 <span className="text-base text-stone-900" style={{ fontWeight: 500 }}>{dayFilledCount}</span><span className="mx-1">/</span>24
               </p>
+              <button onClick={() => setShowCopyDay(true)} className="text-xs text-stone-600 flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-stone-200 active:scale-95">
+                <Copy size={11} />複製到其他日
+              </button>
               <button onClick={() => setManaging(true)} className="text-xs text-stone-600 flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-stone-200 active:scale-95">
                 <Settings size={11} />管理
               </button>
@@ -1047,7 +1071,44 @@ function PlanTab({ activities, template, onSaveTemplate, onSaveActivities }) {
       )}
 
       {managing && <ActivityManager activities={activities} onSave={onSaveActivities} onClose={() => setManaging(false)} />}
+      {showCopyDay && <CopyDayModal sourceDay={currentDay} onConfirm={(targetDays) => handleCopyDay(currentDay, targetDays)} onClose={() => setShowCopyDay(false)} />}
     </div>
+  );
+}
+
+function CopyDayModal({ sourceDay, onConfirm, onClose }) {
+  const [selected, setSelected] = useState([]);
+  const toggle = (d) => setSelected(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
+  const canConfirm = selected.length > 0;
+
+  return (
+    <Modal title={`複製${DAYS[sourceDay].full}到...`} onClose={onClose}>
+      <p className="text-xs text-stone-500 italic mb-3 px-1" style={{ fontFamily: 'Georgia, serif' }}>
+        揀一個或多個目標日，會覆蓋返嗰日原本嘅安排。
+      </p>
+      <div className="grid grid-cols-2 gap-2 mb-4">
+        {DAYS.filter(d => d.id !== sourceDay).map(d => {
+          const checked = selected.includes(d.id);
+          return (
+            <button
+              key={d.id}
+              onClick={() => toggle(d.id)}
+              className="flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm active:scale-[0.98]"
+              style={{ background: checked ? '#1c1917' : 'white', color: checked ? 'white' : '#1c1917', borderColor: checked ? '#1c1917' : '#e7e5e4' }}
+            >
+              <div className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0" style={{ border: `1.5px solid ${checked ? 'white' : '#d6d3d1'}`, background: checked ? 'white' : 'transparent' }}>
+                {checked && <Check size={11} className="text-stone-900" />}
+              </div>
+              {d.full}
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex gap-2">
+        <button onClick={onClose} className="flex-1 py-2.5 rounded-lg text-sm text-stone-600 bg-stone-100">取消</button>
+        <button onClick={() => onConfirm(selected)} disabled={!canConfirm} className="flex-1 py-2.5 rounded-lg text-sm text-white bg-stone-900 disabled:opacity-30" style={{ fontWeight: 500 }}>確認複製</button>
+      </div>
+    </Modal>
   );
 }
 

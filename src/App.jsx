@@ -88,6 +88,7 @@ const TEMPLATE_KEY = 'plan-template-v1'; // 週 template: { "0-9": "work", ... }
 const SLOTS_KEY = 'supp-slots-v1';
 const SKINCARE_KEY = 'skincare-v1';
 const SKINCARE_TIMES_KEY = 'skincare-times-v1';
+const PRODUCT_LIBRARY_KEY = 'product-library-v1'; // 獨立於 skincare-v1/supp-slots-v1：試過覺得好但未必日常追蹤緊嘅產品收藏
 const HEALTH_RECORD_PREFIX = 'health:'; // health:YYYY-MM-DD = { supps:{}, skincare:{}, windDown:{}, steps:boolean }
 const SETTINGS_KEY = 'settings-v1'; // { morningStart, morningEnd, windDownStart, sleepTarget, waterGoal, proteinGoal } — 新 key，冇舊資料需要 migrate
 const WATER_PREFIX = 'water:'; // water:YYYY-MM-DD = { total: number, log: [{time, ml}] } — 新 key，冇舊資料需要 migrate
@@ -132,6 +133,60 @@ const jsDayToMonIdx = (d) => d === 0 ? 6 : d - 1;
 // Migration：supplement/skincare item 補齊 brand/purchaseLink/imageUrl（Rule 5：
 // optional 新欄位，舊資料冇就 fallback 做空字串，唔會令現有 item 顯示出錯）
 const normalizeItem = (it) => ({ ...it, brand: it.brand || '', purchaseLink: it.purchaseLink || '', imageUrl: it.imageUrl || '' });
+
+// ============ 產品庫（product-library-v1）共用 function ============
+
+// Category 預設選項 = 現有護膚 step 名（am+pm 去重複）+ 現有 supplement 時段 label，
+// 純粹讀現有資料做 dropdown 選項，唔會寫返落 skincare-v1/supp-slots-v1
+function getProductCategories(skincare, slots) {
+  const names = new Set();
+  (skincare?.am || []).forEach(s => { if (s.name) names.add(s.name); });
+  (skincare?.pm || []).forEach(s => { if (s.name) names.add(s.name); });
+  (slots || []).forEach(sl => { if (sl.label) names.add(sl.label); });
+  return Array.from(names);
+}
+
+// 將用戶揀嘅圖片檔案，用 canvas 縮到最長邊 800px、轉做 JPEG quality 0.7 嘅 base64，
+// 控制落 localStorage 入面嘅產品庫圖片體積
+function compressImageFile(file) {
+  const MAX_DIM = 800;
+  const QUALITY = 0.7;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('讀取圖片失敗'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('圖片格式唔啱'));
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > height && width > MAX_DIM) { height = Math.round(height * MAX_DIM / width); width = MAX_DIM; }
+        else if (height >= width && height > MAX_DIM) { width = Math.round(width * MAX_DIM / height); height = MAX_DIM; }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        const base64 = canvas.toDataURL('image/jpeg', QUALITY);
+        // base64 每 4 字元約等於 3 個原始 byte，粗略估算壓縮後檔案大小夠用嚟顯示提示
+        const compressedBytes = Math.round(base64.length * 0.75);
+        resolve({ base64, originalBytes: file.size, compressedBytes });
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// 產品庫圖片（base64 data URL）轉返做 File，俾 navigator.share 用
+function dataUrlToFile(dataUrl, filename) {
+  const [header, base64] = dataUrl.split(',');
+  const mimeMatch = header.match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new File([bytes], filename, { type: mime });
+}
 
 // ============ 純 function：NowCard 同 window.getWidgetSummary 共用 ============
 
@@ -183,6 +238,7 @@ export default function App() {
   const [slots, setSlots] = useState(DEFAULT_SUPPLEMENT_SLOTS);
   const [skincare, setSkincare] = useState(DEFAULT_SKINCARE);
   const [skincareTimes, setSkincareTimes] = useState(DEFAULT_SKINCARE_TIMES);
+  const [productLibrary, setProductLibrary] = useState([]);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -195,13 +251,14 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [a, t, s, k, st, se] = await Promise.all([
+        const [a, t, s, k, st, se, pl] = await Promise.all([
           window.storage.get(ACTIVITIES_KEY).catch(() => null),
           window.storage.get(TEMPLATE_KEY).catch(() => null),
           window.storage.get(SLOTS_KEY).catch(() => null),
           window.storage.get(SKINCARE_KEY).catch(() => null),
           window.storage.get(SKINCARE_TIMES_KEY).catch(() => null),
           window.storage.get(SETTINGS_KEY).catch(() => null),
+          window.storage.get(PRODUCT_LIBRARY_KEY).catch(() => null),
         ]);
         if (a?.value) {
           // Migration：舊資料冇 important 欄位，fallback 做 false，唔會令類別消失或者出錯
@@ -222,6 +279,8 @@ export default function App() {
         if (st?.value) setSkincareTimes(JSON.parse(st.value));
         // settings-v1 係全新 key，讀唔到就用 default，唔係 error（Rule 5）
         if (se?.value) setSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(se.value) });
+        // product-library-v1 都係全新 key，讀唔到就用空 array
+        if (pl?.value) setProductLibrary(JSON.parse(pl.value));
       } finally { setLoading(false); }
     })();
   }, []);
@@ -341,6 +400,19 @@ export default function App() {
   const saveSkincare = async (n) => { setSkincare(n); try { await window.storage.set(SKINCARE_KEY, JSON.stringify(n)); flashSaved(); } catch(e){} };
   const saveSkincareTimes = async (n) => { setSkincareTimes(n); try { await window.storage.set(SKINCARE_TIMES_KEY, JSON.stringify(n)); flashSaved(); } catch(e){} };
   const saveSettings = async (n) => { setSettings(n); try { await window.storage.set(SETTINGS_KEY, JSON.stringify(n)); flashSaved(); } catch(e){} };
+  // 加入產品庫／刪除都要俾返 error 上去（唔靜默失敗），等 UI 可以顯示「空間已滿」呢類提示
+  const addProductToLibrary = async (product) => {
+    const item = { ...product, id: `product-${Date.now()}`, createdAt: new Date().toISOString() };
+    const next = [...productLibrary, item];
+    await window.storage.set(PRODUCT_LIBRARY_KEY, JSON.stringify(next));
+    setProductLibrary(next);
+    flashSaved();
+  };
+  const deleteProductFromLibrary = async (id) => {
+    const next = productLibrary.filter(p => p.id !== id);
+    await window.storage.set(PRODUCT_LIBRARY_KEY, JSON.stringify(next));
+    setProductLibrary(next);
+  };
 
   if (loading) {
     return <div className="min-h-screen bg-stone-50 flex items-center justify-center"><p className="text-stone-500" style={{fontFamily:'Georgia, serif'}}>載入緊...</p></div>;
@@ -397,7 +469,7 @@ export default function App() {
       <main className="px-4 pt-3">
         {tab === 'focus' && <FocusTab activities={activities} template={template} slots={slots} skincare={skincare} skincareTimes={skincareTimes} settings={settings} />}
         {tab === 'plan' && <PlanTab activities={activities} template={template} onSaveTemplate={saveTemplate} onSaveActivities={saveActivities} />}
-        {tab === 'health' && <HealthTab slots={slots} skincare={skincare} skincareTimes={skincareTimes} onSaveSlots={saveSlots} onSaveSkincare={saveSkincare} onSaveSkincareTimes={saveSkincareTimes} />}
+        {tab === 'health' && <HealthTab slots={slots} skincare={skincare} skincareTimes={skincareTimes} onSaveSlots={saveSlots} onSaveSkincare={saveSkincare} onSaveSkincareTimes={saveSkincareTimes} productLibrary={productLibrary} onAddToLibrary={addProductToLibrary} onDeleteFromLibrary={deleteProductFromLibrary} />}
         {tab === 'report' && <ReportTab activities={activities} template={template} slots={slots} skincare={skincare} />}
       </main>
 
@@ -885,8 +957,9 @@ function PlanTab({ activities, template, onSaveTemplate, onSaveActivities }) {
 
 // ============ Health Tab（Supp + 護膚 + 日期 nav） ============
 
-function HealthTab({ slots, skincare, skincareTimes, onSaveSlots, onSaveSkincare, onSaveSkincareTimes }) {
+function HealthTab({ slots, skincare, skincareTimes, onSaveSlots, onSaveSkincare, onSaveSkincareTimes, productLibrary, onAddToLibrary, onDeleteFromLibrary }) {
   const [section, setSection] = useState('supps');
+  const productCategories = useMemo(() => getProductCategories(skincare, slots), [skincare, slots]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [record, setRecord] = useState({ supps: {}, skincare: {} });
 
@@ -965,13 +1038,13 @@ function HealthTab({ slots, skincare, skincareTimes, onSaveSlots, onSaveSkincare
         </button>
       </div>
 
-      {section === 'supps' && <SupplementsSection slots={slots} record={record} onToggle={toggleSupp} onSaveSlots={onSaveSlots} isToday={isSameDate(currentDate, new Date())} />}
-      {section === 'skincare' && <SkincareSection skincare={skincare} skincareTimes={skincareTimes} record={record} onToggle={toggleSkin} onSaveSkincare={onSaveSkincare} onSaveSkincareTimes={onSaveSkincareTimes} isToday={isSameDate(currentDate, new Date())} />}
+      {section === 'supps' && <SupplementsSection slots={slots} record={record} onToggle={toggleSupp} onSaveSlots={onSaveSlots} isToday={isSameDate(currentDate, new Date())} productLibrary={productLibrary} productCategories={productCategories} onAddToLibrary={onAddToLibrary} onDeleteFromLibrary={onDeleteFromLibrary} />}
+      {section === 'skincare' && <SkincareSection skincare={skincare} skincareTimes={skincareTimes} record={record} onToggle={toggleSkin} onSaveSkincare={onSaveSkincare} onSaveSkincareTimes={onSaveSkincareTimes} isToday={isSameDate(currentDate, new Date())} productLibrary={productLibrary} productCategories={productCategories} onAddToLibrary={onAddToLibrary} onDeleteFromLibrary={onDeleteFromLibrary} />}
     </div>
   );
 }
 
-function SupplementsSection({ slots, record, onToggle, onSaveSlots, isToday }) {
+function SupplementsSection({ slots, record, onToggle, onSaveSlots, isToday, productLibrary, productCategories, onAddToLibrary, onDeleteFromLibrary }) {
   const [managing, setManaging] = useState(false);
   const [detailItem, setDetailItem] = useState(null);
   const totalItems = slots.reduce((s, sl) => s + sl.items.length, 0);
@@ -1040,13 +1113,13 @@ function SupplementsSection({ slots, record, onToggle, onSaveSlots, isToday }) {
         );
       })}
 
-      {managing && <SupplementManager slots={slots} onSave={onSaveSlots} onClose={() => setManaging(false)} />}
+      {managing && <SupplementManager slots={slots} onSave={onSaveSlots} onClose={() => setManaging(false)} productLibrary={productLibrary} productCategories={productCategories} onAddToLibrary={onAddToLibrary} onDeleteFromLibrary={onDeleteFromLibrary} />}
       {detailItem && <ItemDetailModal item={detailItem} onClose={() => setDetailItem(null)} />}
     </div>
   );
 }
 
-function SkincareSection({ skincare, skincareTimes, record, onToggle, onSaveSkincare, onSaveSkincareTimes, isToday }) {
+function SkincareSection({ skincare, skincareTimes, record, onToggle, onSaveSkincare, onSaveSkincareTimes, isToday, productLibrary, productCategories, onAddToLibrary, onDeleteFromLibrary }) {
   const [managing, setManaging] = useState(null);
   const [editingTimes, setEditingTimes] = useState(false);
   const [detailItem, setDetailItem] = useState(null);
@@ -1105,7 +1178,7 @@ function SkincareSection({ skincare, skincareTimes, record, onToggle, onSaveSkin
         );
       })}
 
-      {managing && <SkincareManager period={managing} steps={skincare[managing]} onSave={(s) => onSaveSkincare({ ...skincare, [managing]: s })} onClose={() => setManaging(null)} />}
+      {managing && <SkincareManager period={managing} steps={skincare[managing]} onSave={(s) => onSaveSkincare({ ...skincare, [managing]: s })} onClose={() => setManaging(null)} productLibrary={productLibrary} productCategories={productCategories} onAddToLibrary={onAddToLibrary} onDeleteFromLibrary={onDeleteFromLibrary} />}
       {editingTimes && <SkincareTimesModal times={skincareTimes} onSave={onSaveSkincareTimes} onClose={() => setEditingTimes(false)} />}
       {detailItem && <ItemDetailModal item={detailItem} onClose={() => setDetailItem(null)} />}
     </div>
@@ -1693,11 +1766,12 @@ function ActivityForm({ initial, onSubmit, onCancel }) {
 
 // ============ Supplement Manager ============
 
-function SupplementManager({ slots, onSave, onClose }) {
+function SupplementManager({ slots, onSave, onClose, productLibrary, productCategories, onAddToLibrary, onDeleteFromLibrary }) {
   const [local, setLocal] = useState(slots);
   const [editingSlotId, setEditingSlotId] = useState(null);
   const [addingSlot, setAddingSlot] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
 
   const handleClose = () => { onSave(local); onClose(); };
   const addSlot = (data) => { setLocal([...local, { ...data, id: `slot-${Date.now()}`, items: [] }]); setAddingSlot(false); };
@@ -1722,6 +1796,9 @@ function SupplementManager({ slots, onSave, onClose }) {
         <button onClick={() => setReorderMode(!reorderMode)} className="px-3 h-8 rounded-full border border-stone-200 text-xs flex items-center gap-1.5 active:scale-95" style={{ background: reorderMode ? '#1c1917' : 'white', color: reorderMode ? 'white' : '#44403c', fontWeight: 500 }}>
           <GripVertical size={11} />{reorderMode ? '完成排序' : '排序時段'}
         </button>
+        <button onClick={() => setShowLibrary(true)} className="px-3 h-8 rounded-full border border-stone-200 bg-white text-xs text-stone-600 flex items-center gap-1.5 active:scale-95">
+          <Library size={11} />產品庫
+        </button>
       </div>
 
       {local.map((slot, idx) => (
@@ -1745,7 +1822,7 @@ function SupplementManager({ slots, onSave, onClose }) {
                   </div>
                 )}
               </div>
-              {!reorderMode && <ItemsEditor items={slot.items} onAdd={(d) => addItem(slot.id, d)} onUpdate={(iId, d) => updateItem(slot.id, iId, d)} onDelete={(iId) => deleteItem(slot.id, iId)} onReorder={(newItems) => reorderItems(slot.id, newItems)} placeholder="例如：維他命 C" />}
+              {!reorderMode && <ItemsEditor items={slot.items} onAdd={(d) => addItem(slot.id, d)} onUpdate={(iId, d) => updateItem(slot.id, iId, d)} onDelete={(iId) => deleteItem(slot.id, iId)} onReorder={(newItems) => reorderItems(slot.id, newItems)} placeholder="例如：維他命 C" productCategories={productCategories} onAddToLibrary={onAddToLibrary} />}
             </div>
           )}
         </div>
@@ -1756,6 +1833,8 @@ function SupplementManager({ slots, onSave, onClose }) {
           <Plus size={14} />新增時段
         </button>
       ))}
+
+      {showLibrary && <ProductLibraryModal products={productLibrary} onDelete={onDeleteFromLibrary} onClose={() => setShowLibrary(false)} />}
     </Modal>
   );
 }
@@ -1787,8 +1866,9 @@ function SlotForm({ initial, onSubmit, onCancel }) {
 
 // ============ Skincare Manager ============
 
-function SkincareManager({ period, steps, onSave, onClose }) {
+function SkincareManager({ period, steps, onSave, onClose, productLibrary, productCategories, onAddToLibrary, onDeleteFromLibrary }) {
   const [local, setLocal] = useState(steps);
+  const [showLibrary, setShowLibrary] = useState(false);
   const handleClose = () => { onSave(local); onClose(); };
   const addStep = (data) => setLocal([...local, { brand: '', purchaseLink: '', imageUrl: '', ...data, id: `step-${Date.now()}` }]);
   const updateStep = (id, data) => setLocal(local.map(s => s.id === id ? { ...s, ...data } : s));
@@ -1796,14 +1876,20 @@ function SkincareManager({ period, steps, onSave, onClose }) {
 
   return (
     <Modal title={`管理${period === 'am' ? '早晨' : '晚間'}護膚`} onClose={handleClose}>
-      <ItemsEditor items={local} onAdd={addStep} onUpdate={updateStep} onDelete={deleteStep} onReorder={setLocal} placeholder="例如：潔面" numbered />
+      <div className="flex items-center gap-2 mb-3">
+        <button onClick={() => setShowLibrary(true)} className="px-3 h-8 rounded-full border border-stone-200 bg-white text-xs text-stone-600 flex items-center gap-1.5 active:scale-95">
+          <Library size={11} />產品庫
+        </button>
+      </div>
+      <ItemsEditor items={local} onAdd={addStep} onUpdate={updateStep} onDelete={deleteStep} onReorder={setLocal} placeholder="例如：潔面" numbered productCategories={productCategories} onAddToLibrary={onAddToLibrary} />
+      {showLibrary && <ProductLibraryModal products={productLibrary} onDelete={onDeleteFromLibrary} onClose={() => setShowLibrary(false)} />}
     </Modal>
   );
 }
 
 // ============ Items Editor ============
 
-function ItemsEditor({ items, onAdd, onUpdate, onDelete, onReorder, placeholder, numbered }) {
+function ItemsEditor({ items, onAdd, onUpdate, onDelete, onReorder, placeholder, numbered, productCategories, onAddToLibrary }) {
   const [editingId, setEditingId] = useState(null);
   const [adding, setAdding] = useState(false);
 
@@ -1826,7 +1912,7 @@ function ItemsEditor({ items, onAdd, onUpdate, onDelete, onReorder, placeholder,
 
   const rows = items.map((item, idx) => (
     editingId === item.id ? (
-      <ItemForm key={item.id} initial={item} placeholder={placeholder} onSubmit={handleUpdate} onCancel={() => setEditingId(null)} />
+      <ItemForm key={item.id} initial={item} placeholder={placeholder} onSubmit={handleUpdate} onCancel={() => setEditingId(null)} productCategories={productCategories} onAddToLibrary={onAddToLibrary} />
     ) : (
       <SortableItemRow
         key={item.id}
@@ -1852,7 +1938,7 @@ function ItemsEditor({ items, onAdd, onUpdate, onDelete, onReorder, placeholder,
       ) : rows}
 
       {adding ? (
-        <ItemForm placeholder={placeholder} onSubmit={handleAdd} onCancel={() => setAdding(false)} />
+        <ItemForm placeholder={placeholder} onSubmit={handleAdd} onCancel={() => setAdding(false)} productCategories={productCategories} onAddToLibrary={onAddToLibrary} />
       ) : (
         <button onClick={() => { setAdding(true); setEditingId(null); }} className="w-full mt-1 py-2.5 rounded-lg bg-white border border-dashed border-stone-300 text-stone-600 active:bg-stone-50 flex items-center justify-center gap-1.5 text-xs" style={{ fontWeight: 500 }}>
           <Plus size={12} />新增項目
@@ -1888,11 +1974,12 @@ function SortableItemRow({ item, index, numbered, draggable, onEdit, onDelete })
 }
 
 // 加/編輯項目嘅表單，跟 SlotForm/ActivityForm 一樣嘅視覺風格（堆疊式 labeled input + 儲存/取消）
-function ItemForm({ initial, onSubmit, onCancel, placeholder }) {
+function ItemForm({ initial, onSubmit, onCancel, placeholder, productCategories, onAddToLibrary }) {
   const [name, setName] = useState(initial?.name || '');
   const [brand, setBrand] = useState(initial?.brand || '');
   const [purchaseLink, setPurchaseLink] = useState(initial?.purchaseLink || '');
   const [imageUrl, setImageUrl] = useState(initial?.imageUrl || '');
+  const [showAddToLibrary, setShowAddToLibrary] = useState(false);
 
   const handleSubmit = () => {
     if (!name.trim()) return;
@@ -1910,7 +1997,243 @@ function ItemForm({ initial, onSubmit, onCancel, placeholder }) {
         <button onClick={onCancel} className="flex-1 py-2 rounded-lg text-xs text-stone-600 bg-stone-100">取消</button>
         <button onClick={handleSubmit} disabled={!name.trim()} className="flex-1 py-2 rounded-lg text-xs text-white bg-stone-900 disabled:opacity-30" style={{ fontWeight: 500 }}>{initial ? '儲存' : '加入'}</button>
       </div>
+      {onAddToLibrary && (
+        <button onClick={() => setShowAddToLibrary(true)} className="w-full mt-2 py-2 rounded-lg text-xs text-stone-600 bg-white border border-dashed border-stone-300 active:scale-95 flex items-center justify-center gap-1.5">
+          <Library size={11} />加入產品庫
+        </button>
+      )}
+      {showAddToLibrary && (
+        <AddToLibraryModal
+          initial={{ name, brand, link: purchaseLink }}
+          categories={productCategories || []}
+          onSave={onAddToLibrary}
+          onClose={() => setShowAddToLibrary(false)}
+        />
+      )}
     </div>
+  );
+}
+
+// ============ 產品庫（獨立於 skincare-v1/supp-slots-v1 嘅日常追蹤 step） ============
+
+function AddToLibraryModal({ initial, categories, onSave, onClose }) {
+  const [name, setName] = useState(initial?.name || '');
+  const [brand, setBrand] = useState(initial?.brand || '');
+  const [link, setLink] = useState(initial?.link || '');
+  const matchedCategory = categories.includes(initial?.name) ? initial.name : (categories[0] || '');
+  const [categoryMode, setCategoryMode] = useState(matchedCategory ? 'existing' : 'custom');
+  const [category, setCategory] = useState(matchedCategory);
+  const [customCategory, setCustomCategory] = useState('');
+  const [imageBase64, setImageBase64] = useState('');
+  const [imageInfo, setImageInfo] = useState(null); // { originalKB, compressedKB }
+  const [compressing, setCompressing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const effectiveCategory = (categoryMode === 'custom' ? customCategory : category).trim();
+  const canSave = !!name.trim() && !!effectiveCategory && !saving;
+
+  const handleCategoryChange = (e) => {
+    if (e.target.value === '__custom__') setCategoryMode('custom');
+    else { setCategoryMode('existing'); setCategory(e.target.value); }
+  };
+
+  const handleImagePick = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setStatus(null);
+    setCompressing(true);
+    try {
+      const { base64, originalBytes, compressedBytes } = await compressImageFile(file);
+      setImageBase64(base64);
+      setImageInfo({ originalKB: Math.max(1, Math.round(originalBytes / 1024)), compressedKB: Math.max(1, Math.round(compressedBytes / 1024)) });
+    } catch (e) {
+      setStatus({ type: 'error', msg: e?.message || '圖片處理失敗，請試下另一張' });
+    } finally {
+      setCompressing(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    setStatus(null);
+    try {
+      await onSave({ name: name.trim(), brand: brand.trim(), category: effectiveCategory, link: link.trim(), imageBase64 });
+      setStatus({ type: 'success', msg: '已加入產品庫！' });
+      setTimeout(onClose, 900);
+    } catch (e) {
+      const isQuota = e?.name === 'QuotaExceededError' || /quota/i.test(e?.message || '');
+      setStatus({ type: 'error', msg: isQuota ? '產品庫空間已滿，建議刪除部分舊產品' : '加入產品庫失敗，請再試' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title="加入產品庫" onClose={onClose}>
+      <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="產品名稱" autoFocus className="w-full px-3 py-2.5 rounded-lg bg-stone-50 border border-stone-200 text-sm mb-2 outline-none focus:border-stone-400" />
+      <input type="text" value={brand} onChange={e => setBrand(e.target.value)} placeholder="品牌（選填）" className="w-full px-3 py-2.5 rounded-lg bg-stone-50 border border-stone-200 text-sm mb-2 outline-none focus:border-stone-400" />
+
+      <p className="text-[10px] text-stone-500 mb-1">分類</p>
+      <select value={categoryMode === 'custom' ? '__custom__' : category} onChange={handleCategoryChange} className="w-full px-3 py-2.5 rounded-lg bg-stone-50 border border-stone-200 text-sm mb-2 outline-none focus:border-stone-400">
+        {categories.map(c => <option key={c} value={c}>{c}</option>)}
+        <option value="__custom__">➕ 自訂分類</option>
+      </select>
+      {categoryMode === 'custom' && (
+        <input type="text" value={customCategory} onChange={e => setCustomCategory(e.target.value)} placeholder="輸入自訂分類名" className="w-full px-3 py-2.5 rounded-lg bg-stone-50 border border-stone-200 text-sm mb-2 outline-none focus:border-stone-400" />
+      )}
+
+      <input type="url" value={link} onChange={e => setLink(e.target.value)} placeholder="連結（選填）" className="w-full px-3 py-2.5 rounded-lg bg-stone-50 border border-stone-200 text-sm mb-2 outline-none focus:border-stone-400" />
+
+      <p className="text-[10px] text-stone-500 mb-1">圖片（選填）</p>
+      <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImagePick} className="hidden" />
+      <button onClick={() => fileInputRef.current?.click()} disabled={compressing} className="w-full mb-1.5 py-2 rounded-lg text-xs text-stone-600 bg-white border border-stone-200 active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50">
+        <ImagePlus size={12} />{compressing ? '處理緊...' : (imageBase64 ? '重新揀圖片' : '揀圖片')}
+      </button>
+      {imageBase64 && (
+        <div className="mb-2 flex items-center gap-2">
+          <img src={imageBase64} alt="" className="w-12 h-12 rounded-lg object-cover border border-stone-200" />
+          {imageInfo && <p className="text-[10px] text-stone-500">壓縮：{imageInfo.originalKB}KB → {imageInfo.compressedKB}KB</p>}
+        </div>
+      )}
+
+      {status && (
+        <div className="mb-2 p-2.5 rounded-lg text-xs" style={{ background: status.type === 'success' ? '#ecfdf5' : '#fef2f2', color: status.type === 'success' ? '#065f46' : '#991b1b', border: `1px solid ${status.type === 'success' ? '#10b981' : '#ef4444'}30` }}>
+          {status.type === 'success' ? '✅ ' : '⚠️ '}{status.msg}
+        </div>
+      )}
+
+      <div className="flex gap-2 mt-1">
+        <button onClick={onClose} className="flex-1 py-2.5 rounded-lg text-sm text-stone-600 bg-stone-100">取消</button>
+        <button onClick={handleSave} disabled={!canSave} className="flex-1 py-2.5 rounded-lg text-sm text-white bg-stone-900 disabled:opacity-30" style={{ fontWeight: 500 }}>加入</button>
+      </div>
+    </Modal>
+  );
+}
+
+function ProductLibraryModal({ products, onDelete, onClose }) {
+  const [search, setSearch] = useState('');
+  const [filterCategory, setFilterCategory] = useState('全部');
+  const [status, setStatus] = useState(null);
+  const [shareFeedbackId, setShareFeedbackId] = useState(null);
+
+  const categories = useMemo(() => Array.from(new Set(products.map(p => p.category))).filter(Boolean), [products]);
+
+  const filtered = products.filter(p => {
+    if (filterCategory !== '全部' && p.category !== filterCategory) return false;
+    const q = search.trim().toLowerCase();
+    if (q && !`${p.name} ${p.brand}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  const grouped = useMemo(() => {
+    const map = {};
+    filtered.forEach(p => { (map[p.category] = map[p.category] || []).push(p); });
+    return map;
+  }, [filtered]);
+
+  const copyProductText = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch { ok = false; }
+      document.body.removeChild(ta);
+      return ok;
+    }
+  };
+
+  const handleShare = async (product) => {
+    setStatus(null);
+    const text = [product.name, product.brand, product.link].filter(Boolean).join('\n');
+    try {
+      if (navigator.share) {
+        if (product.imageBase64 && navigator.canShare) {
+          const file = dataUrlToFile(product.imageBase64, `${product.name || 'product'}.jpg`);
+          if (navigator.canShare({ files: [file] })) {
+            await navigator.share({ files: [file], title: product.name, text });
+            return;
+          }
+        }
+        await navigator.share({ title: product.name, text });
+        return;
+      }
+      throw new Error('no-share-api');
+    } catch (e) {
+      if (e?.name === 'AbortError') return; // 用戶自己撳 X 收埋分享面板，唔算錯誤
+      const ok = await copyProductText(text);
+      if (ok) {
+        setShareFeedbackId(product.id);
+        setTimeout(() => setShareFeedbackId(null), 2000);
+      } else {
+        setStatus({ type: 'error', msg: '分享/複製都失敗，請手動抄低' });
+      }
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!confirm('刪除呢個產品？（唔會影響日常追蹤緊嘅項目）')) return;
+    setStatus(null);
+    try {
+      await onDelete(id);
+    } catch {
+      setStatus({ type: 'error', msg: '刪除失敗，請再試' });
+    }
+  };
+
+  return (
+    <Modal title="產品庫" onClose={onClose}>
+      <div className="flex items-center gap-2 mb-2">
+        <div className="flex-1 relative">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="搜尋名稱/品牌" className="w-full pl-8 pr-3 py-2 rounded-lg bg-white border border-stone-200 text-sm outline-none focus:border-stone-400" />
+        </div>
+      </div>
+      <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-white border border-stone-200 text-sm mb-3 outline-none focus:border-stone-400">
+        <option value="全部">全部分類</option>
+        {categories.map(c => <option key={c} value={c}>{c}</option>)}
+      </select>
+
+      {status && (
+        <div className="mb-3 p-2.5 rounded-lg text-xs" style={{ background: '#fef2f2', color: '#991b1b', border: '1px solid #ef444430' }}>⚠️ {status.msg}</div>
+      )}
+
+      {Object.keys(grouped).length === 0 ? (
+        <EmptyState icon={Library} title="產品庫未有嘢" desc="喺編輯項目度撳「加入產品庫」開始收藏" />
+      ) : Object.entries(grouped).map(([cat, items]) => (
+        <div key={cat} className="mb-4">
+          <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-2 px-1">{cat}</p>
+          {items.map(p => (
+            <div key={p.id} className="flex items-center gap-2.5 p-2.5 mb-1.5 rounded-xl bg-white border border-stone-200">
+              {p.imageBase64 ? (
+                <img src={p.imageBase64} alt="" className="w-11 h-11 rounded-lg object-cover flex-shrink-0" />
+              ) : (
+                <div className="w-11 h-11 rounded-lg bg-stone-100 flex items-center justify-center flex-shrink-0"><Sparkles size={14} className="text-stone-300" /></div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-stone-900 truncate" style={{ fontWeight: 500 }}>{p.name}</p>
+                {p.brand && <p className="text-xs text-stone-500 truncate">{p.brand}</p>}
+                {p.link && <a href={p.link} target="_blank" rel="noreferrer" className="text-[11px] text-blue-600 truncate flex items-center gap-0.5"><ExternalLink size={9} />連結</a>}
+              </div>
+              <button onClick={() => handleShare(p)} className="w-8 h-8 rounded-full bg-stone-50 border border-stone-200 flex items-center justify-center active:scale-95 flex-shrink-0">
+                {shareFeedbackId === p.id ? <Check size={13} className="text-emerald-600" /> : <Share2 size={13} className="text-stone-600" />}
+              </button>
+              <button onClick={() => handleDelete(p.id)} className="w-8 h-8 rounded-full bg-stone-50 border border-stone-200 flex items-center justify-center active:scale-95 flex-shrink-0">
+                <Trash2 size={13} className="text-stone-500" />
+              </button>
+            </div>
+          ))}
+        </div>
+      ))}
+    </Modal>
   );
 }
 

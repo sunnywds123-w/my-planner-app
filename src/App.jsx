@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser, Star, ExternalLink } from 'lucide-react';
+import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser, Star, ExternalLink, Share2, FileUp, Library, ImagePlus, Search } from 'lucide-react';
 import { DndContext, closestCenter, useSensor, useSensors, MouseSensor, TouchSensor } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -2388,6 +2388,7 @@ function BackupModal({ data, onImport, onClearRecords, onPreviewClearRecords, on
   const [importText, setImportText] = useState('');
   const [copied, setCopied] = useState(false);
   const [status, setStatus] = useState(null); // { type: 'success'|'error', msg }
+  const fileInputRef = useRef(null);
 
   // 清除記錄嘅 state
   const today = new Date();
@@ -2425,6 +2426,51 @@ function BackupModal({ data, onImport, onClearRecords, onPreviewClearRecords, on
       ta.select();
       try { document.execCommand('copy'); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
       document.body.removeChild(ta);
+    }
+  };
+
+  // 分享備份檔案：優先用系統分享面板（WeChat/AirDrop/儲存到檔案等），
+  // 唔支援就 fallback 做傳統瀏覽器下載。檔名時間跟返 backupData.exportedAt，
+  // 同備份內容嘅時間一致，唔另外攞 new Date()。
+  const handleShareFile = async () => {
+    setStatus(null);
+    try {
+      const dt = new Date(backupData.exportedAt);
+      const pad = (n) => String(n).padStart(2, '0');
+      const filename = `daily-planner-備份-${dt.getFullYear()}${pad(dt.getMonth() + 1)}${pad(dt.getDate())}-${pad(dt.getHours())}${pad(dt.getMinutes())}.json`;
+      const file = new File([backupText], filename, { type: 'application/json' });
+
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: filename });
+      } else {
+        const url = URL.createObjectURL(file);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch (e) {
+      if (e?.name !== 'AbortError') { // 用戶自己撳 X 收埋分享面板唔算錯誤
+        setStatus({ type: 'error', msg: '分享檔案失敗，請試下複製備份' });
+      }
+    }
+  };
+
+  // 揀檔案匯入：讀取內容塞入 importText，等用戶再撳「還原設定」確認，
+  // 唔會揀完檔案就自動匯入
+  const handleFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // reset，等用戶可以再揀返同一個檔案
+    if (!file) return;
+    setStatus(null);
+    try {
+      const text = await file.text();
+      setImportText(text);
+    } catch {
+      setStatus({ type: 'error', msg: '讀取檔案失敗，請確認係有效嘅備份檔案' });
     }
   };
 
@@ -2614,6 +2660,26 @@ function BackupModal({ data, onImport, onClearRecords, onPreviewClearRecords, on
             {copied ? <><Check size={16} /><span>已複製！去 WhatsApp 貼上</span></> : <><Copy size={16} /><span>複製備份</span></>}
           </button>
 
+          <button
+            onClick={handleShareFile}
+            className="w-full mt-2 py-3 rounded-xl text-sm text-stone-600 bg-white border border-stone-200 active:scale-[0.98] flex items-center justify-center gap-2"
+          >
+            <Share2 size={15} /><span>分享備份檔案</span>
+          </button>
+
+          {status && (
+            <div
+              className="mt-3 p-3 rounded-lg text-xs"
+              style={{
+                background: status.type === 'success' ? '#ecfdf5' : '#fef2f2',
+                color: status.type === 'success' ? '#065f46' : '#991b1b',
+                border: `1px solid ${status.type === 'success' ? '#10b981' : '#ef4444'}30`,
+              }}
+            >
+              {status.type === 'success' ? '✅ ' : '⚠️ '}{status.msg}
+            </div>
+          )}
+
           <div className="mt-4 rounded-xl bg-amber-50 border border-amber-200 p-3">
             <p className="text-xs text-amber-900 leading-relaxed">
               <b>💡 建議做法：</b><br/>
@@ -2630,20 +2696,36 @@ function BackupModal({ data, onImport, onClearRecords, onPreviewClearRecords, on
             貼上之前備份嘅文字，還原你嘅設定。
           </p>
 
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json,application/json"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+
           <textarea
             value={importText}
             onChange={e => setImportText(e.target.value)}
-            placeholder='貼上備份文字（以 { 開頭嘅嘢）...'
+            placeholder='貼上備份文字（以 { 開頭嘅嘢），或者揀返備份檔案...'
             className="w-full h-40 px-3 py-2.5 rounded-lg bg-white border border-stone-200 text-xs outline-none focus:border-stone-400 mb-2"
             style={{ fontFamily: 'Courier, monospace', resize: 'vertical' }}
           />
 
-          <button
-            onClick={handlePaste}
-            className="w-full mb-3 py-2 rounded-lg text-xs text-stone-600 bg-white border border-stone-200 active:scale-95 flex items-center justify-center gap-1.5"
-          >
-            <Copy size={12} />由剪貼簿貼上
-          </button>
+          <div className="flex gap-2 mb-3">
+            <button
+              onClick={handlePaste}
+              className="flex-1 py-2 rounded-lg text-xs text-stone-600 bg-white border border-stone-200 active:scale-95 flex items-center justify-center gap-1.5"
+            >
+              <Copy size={12} />由剪貼簿貼上
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex-1 py-2 rounded-lg text-xs text-stone-600 bg-white border border-stone-200 active:scale-95 flex items-center justify-center gap-1.5"
+            >
+              <FileUp size={12} />揀檔案匯入
+            </button>
+          </div>
 
           {status && (
             <div

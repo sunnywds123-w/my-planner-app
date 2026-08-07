@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser, Star, ExternalLink, Share2, FileUp, Library, ImagePlus, Search } from 'lucide-react';
+import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser, Star, ExternalLink, Share2, FileUp, Library, ImagePlus, Search, MessageCircle } from 'lucide-react';
 import { DndContext, closestCenter, useSensor, useSensors, MouseSensor, TouchSensor } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -175,6 +175,18 @@ function compressImageFile(file) {
     };
     reader.readAsDataURL(file);
   });
+}
+
+// 產品庫圖片（base64 data URL）轉返做 File，俾「WhatsApp 分享」嗰種
+// 分享原圖（唔合成文字落圖）用
+function dataUrlToFile(dataUrl, filename) {
+  const [header, base64] = dataUrl.split(',');
+  const mimeMatch = header.match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new File([bytes], filename, { type: mime });
 }
 
 // canvas 度畫一個圓角矩形並填色（用 fillStyle 現有嘅顏色），俾分享卡嘅分類標籤用
@@ -2371,6 +2383,41 @@ function ProductLibraryModal({ products, onDelete, onClose, productCategories, o
     }
   };
 
+  // WhatsApp 分享：唔合成卡片，分享返原圖，品牌/連結淨係擺喺 navigator.share
+  // 嘅 text 欄位（獨立傳，唔會印落張相），等 WhatsApp 顯示「相片 + 底下純文字」
+  const handleShareOriginal = async (product) => {
+    setStatus(null);
+    const text = [product.name, product.brand, product.link].filter(Boolean).join('\n');
+    try {
+      let shareFile = null;
+      if (product.imageBase64) {
+        try {
+          shareFile = dataUrlToFile(product.imageBase64, `${product.name || 'product'}.jpg`);
+        } catch {
+          shareFile = null; // 原圖轉檔失敗就淨係文字分享，唔好累到成個分享功能死咗
+        }
+      }
+      if (navigator.share) {
+        if (shareFile && navigator.canShare && navigator.canShare({ files: [shareFile] })) {
+          await navigator.share({ files: [shareFile], title: product.name, text });
+          return;
+        }
+        await navigator.share({ title: product.name, text });
+        return;
+      }
+      throw new Error('no-share-api');
+    } catch (e) {
+      if (e?.name === 'AbortError') return;
+      const ok = await copyProductText(text);
+      if (ok) {
+        setShareFeedbackId(product.id);
+        setTimeout(() => setShareFeedbackId(null), 2000);
+      } else {
+        setStatus({ type: 'error', msg: '分享/複製都失敗，請手動抄低' });
+      }
+    }
+  };
+
   const handleDelete = async (id) => {
     if (!confirm('刪除呢個產品？（唔會影響日常追蹤緊嘅項目）')) return;
     setStatus(null);
@@ -2420,8 +2467,11 @@ function ProductLibraryModal({ products, onDelete, onClose, productCategories, o
                 {p.brand && <p className="text-xs text-stone-500 truncate">{p.brand}</p>}
                 {p.link && <a href={p.link} target="_blank" rel="noreferrer" className="text-[11px] text-blue-600 truncate flex items-center gap-0.5"><ExternalLink size={9} />連結</a>}
               </div>
-              <button onClick={() => handleShare(p)} className="w-8 h-8 rounded-full bg-stone-50 border border-stone-200 flex items-center justify-center active:scale-95 flex-shrink-0">
+              <button onClick={() => handleShare(p)} title="分享資訊卡（相片印埋文字）" className="w-8 h-8 rounded-full bg-stone-50 border border-stone-200 flex items-center justify-center active:scale-95 flex-shrink-0">
                 {shareFeedbackId === p.id ? <Check size={13} className="text-emerald-600" /> : <Share2 size={13} className="text-stone-600" />}
+              </button>
+              <button onClick={() => handleShareOriginal(p)} title="WhatsApp 分享（原圖 + 文字分開）" className="w-8 h-8 rounded-full bg-stone-50 border border-stone-200 flex items-center justify-center active:scale-95 flex-shrink-0">
+                {shareFeedbackId === p.id ? <Check size={13} className="text-emerald-600" /> : <MessageCircle size={13} className="text-emerald-600" />}
               </button>
               <button onClick={() => handleDelete(p.id)} className="w-8 h-8 rounded-full bg-stone-50 border border-stone-200 flex items-center justify-center active:scale-95 flex-shrink-0">
                 <Trash2 size={13} className="text-stone-500" />

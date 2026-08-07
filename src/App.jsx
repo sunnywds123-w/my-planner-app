@@ -1386,6 +1386,9 @@ function StatsSection({ activities, template }) {
 
 // 「瞓覺性質」類別靠 label 文字識別（含「瞓」或「睡」），唔另加欄位
 const SLEEP_LABEL_RE = /瞓|睡/;
+// 「工作類」（工作、教學）都係靠 label 文字識別，跟返 SLEEP_LABEL_RE 一樣嘅
+// 做法，唔加新欄位、唔使 storage migration
+const WORK_LABEL_RE = /工作|教學/;
 // 自我增值時數門檻：30 分鐘。Template 現時逐格係成粒鐘計，無半粒鐘資料，
 // 所以呢個門檻實務上等於「0 小時」先會觸發；寫成 0.5 小時保留語意，
 // 將來如果 template granularity 變幼咗都仲啱用。
@@ -1398,49 +1401,74 @@ function ImportantAnalysis({ activities, stats, totalHours }) {
   if (!anySelected) {
     return (
       <div className="rounded-2xl bg-white border border-stone-200 p-4 mb-3" style={{ boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
-        <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-2">重要 vs 不重要</p>
+        <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-2">時間分類</p>
         <p className="text-sm text-stone-500 italic" style={{ fontFamily: 'Georgia, serif' }}>未設定重要事項，前往設定揀選</p>
       </div>
     );
   }
 
+  // 「重要」呢個 umbrella 概念保留返做 30% 門檻警告嘅計算基礎（睡眠 + 自我提升）
   const importantHours = importantActs.reduce((sum, a) => sum + (stats[a.id] || 0), 0);
-  const unimportantHours = totalHours - importantHours;
   const importantPct = totalHours > 0 ? (importantHours / totalHours * 100) : 0;
-  const unimportantPct = totalHours > 0 ? 100 - importantPct : 0;
 
   const sleepActs = importantActs.filter(a => SLEEP_LABEL_RE.test(a.label));
   const hasSleepCategory = sleepActs.length > 0;
   const sleepHours = sleepActs.reduce((sum, a) => sum + (stats[a.id] || 0), 0);
   const selfImprovementHours = importantHours - sleepHours;
+  const sleepPct = totalHours > 0 ? (sleepHours / totalHours * 100) : 0;
+  const selfImprovementPct = totalHours > 0 ? (selfImprovementHours / totalHours * 100) : 0;
+
+  const unimportantActs = activities.filter(a => !a.important);
+  const workActs = unimportantActs.filter(a => WORK_LABEL_RE.test(a.label));
+  const workHours = workActs.reduce((sum, a) => sum + (stats[a.id] || 0), 0);
+  const generalActs = unimportantActs.filter(a => !WORK_LABEL_RE.test(a.label));
+  const generalHours = generalActs.reduce((sum, a) => sum + (stats[a.id] || 0), 0);
+  const workPct = totalHours > 0 ? (workHours / totalHours * 100) : 0;
+  const generalPct = totalHours > 0 ? (generalHours / totalHours * 100) : 0;
 
   const showLowImportantWarning = importantPct < 30;
   const showLowSelfImprovementWarning = hasSleepCategory && selfImprovementHours < SELF_IMPROVEMENT_MIN_HOURS;
 
   return (
     <div className="rounded-2xl bg-white border border-stone-200 p-4 mb-3" style={{ boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
-      <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-3">重要 vs 不重要</p>
+      <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-3">時間分類</p>
 
-      <div className="flex gap-4 mb-3">
-        <div className="flex-1">
-          <p className="text-xs text-stone-500 mb-1">重要事項</p>
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <p className="text-xs text-stone-500 mb-1">睡眠</p>
           <p className="flex items-baseline gap-1">
-            <span className="text-2xl text-stone-900" style={{ fontFamily: 'Georgia, serif', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{importantHours}</span>
-            <span className="text-xs text-stone-500">小時 · {importantPct.toFixed(0)}%</span>
+            <span className="text-2xl text-stone-900" style={{ fontFamily: 'Georgia, serif', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{sleepHours}</span>
+            <span className="text-xs text-stone-500">小時 · {sleepPct.toFixed(0)}%</span>
           </p>
         </div>
-        <div className="flex-1">
-          <p className="text-xs text-stone-500 mb-1">不重要事項</p>
+        <div>
+          <p className="text-xs text-stone-500 mb-1">自我提升類</p>
           <p className="flex items-baseline gap-1">
-            <span className="text-2xl text-stone-900" style={{ fontFamily: 'Georgia, serif', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{unimportantHours}</span>
-            <span className="text-xs text-stone-500">小時 · {unimportantPct.toFixed(0)}%</span>
+            <span className="text-2xl text-stone-900" style={{ fontFamily: 'Georgia, serif', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{selfImprovementHours}</span>
+            <span className="text-xs text-stone-500">小時 · {selfImprovementPct.toFixed(0)}%</span>
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-stone-500 mb-1">一般事項</p>
+          <p className="flex items-baseline gap-1">
+            <span className="text-2xl text-stone-900" style={{ fontFamily: 'Georgia, serif', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{generalHours}</span>
+            <span className="text-xs text-stone-500">小時 · {generalPct.toFixed(0)}%</span>
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-stone-500 mb-1">工作類</p>
+          <p className="flex items-baseline gap-1">
+            <span className="text-2xl text-stone-900" style={{ fontFamily: 'Georgia, serif', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>{workHours}</span>
+            <span className="text-xs text-stone-500">小時 · {workPct.toFixed(0)}%</span>
           </p>
         </div>
       </div>
 
       <div className="h-2 rounded-full bg-stone-100 overflow-hidden flex mb-3">
-        <div style={{ width: `${importantPct}%`, background: '#f59e0b' }} />
-        <div style={{ width: `${unimportantPct}%`, background: '#d6d3d1' }} />
+        <div style={{ width: `${sleepPct}%`, background: '#a855f7' }} />
+        <div style={{ width: `${selfImprovementPct}%`, background: '#f59e0b' }} />
+        <div style={{ width: `${generalPct}%`, background: '#d6d3d1' }} />
+        <div style={{ width: `${workPct}%`, background: '#3b82f6' }} />
       </div>
 
       {showLowImportantWarning && (

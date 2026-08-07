@@ -177,15 +177,111 @@ function compressImageFile(file) {
   });
 }
 
-// 產品庫圖片（base64 data URL）轉返做 File，俾 navigator.share 用
-function dataUrlToFile(dataUrl, filename) {
-  const [header, base64] = dataUrl.split(',');
-  const mimeMatch = header.match(/:(.*?);/);
-  const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-  const bin = atob(base64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new File([bytes], filename, { type: mime });
+// canvas 度畫一個圓角矩形並填色（用 fillStyle 現有嘅顏色），俾分享卡嘅分類標籤用
+function drawRoundedRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// 逐字包行（中英文夾雜冇詞界，逐字量寬度會準過逐 word split）
+function wrapCanvasText(ctx, text, maxWidth) {
+  const lines = [];
+  let line = '';
+  for (const ch of String(text)) {
+    const test = line + ch;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      lines.push(line);
+      line = ch;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+// 分享卡：產品相片（上半部，contain-fit 唔變形）+ 分類/名稱/品牌/連結文字（下半部白底），
+// 淨係分享嗰下先臨時合成，唔會存返落 product-library-v1（imageBase64 保持原圖）
+function composeShareCard(product) {
+  const CARD_W = 800;
+  const IMG_H = 800;
+  const TEXT_H = 280;
+  const PAD = 40;
+  const FONT = '-apple-system, "PingFang HK", "Helvetica Neue", sans-serif';
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onerror = () => reject(new Error('圖片載入失敗'));
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = CARD_W;
+        canvas.height = IMG_H + TEXT_H;
+        const ctx = canvas.getContext('2d');
+
+        // 圖片區：letterbox 底 + contain-fit
+        ctx.fillStyle = '#f5f5f4';
+        ctx.fillRect(0, 0, CARD_W, IMG_H);
+        const scale = Math.min(CARD_W / img.width, IMG_H / img.height);
+        const drawW = img.width * scale;
+        const drawH = img.height * scale;
+        ctx.drawImage(img, (CARD_W - drawW) / 2, (IMG_H - drawH) / 2, drawW, drawH);
+
+        // 文字區：白底
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, IMG_H, CARD_W, TEXT_H);
+
+        let y = IMG_H + PAD;
+        ctx.textBaseline = 'middle';
+
+        if (product.category) {
+          ctx.font = `600 22px ${FONT}`;
+          const tagPadX = 16;
+          const tagW = ctx.measureText(product.category).width + tagPadX * 2;
+          const tagH = 38;
+          ctx.fillStyle = '#f5f5f4';
+          drawRoundedRect(ctx, PAD, y, tagW, tagH, tagH / 2);
+          ctx.fillStyle = '#57534e';
+          ctx.fillText(product.category, PAD + tagPadX, y + tagH / 2 + 1);
+          y += tagH + 20;
+        }
+
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillStyle = '#1c1917';
+        ctx.font = `bold 40px ${FONT}`;
+        const nameLines = wrapCanvasText(ctx, product.name || '', CARD_W - PAD * 2).slice(0, 2);
+        nameLines.forEach((line, i) => ctx.fillText(line, PAD, y + 34 + i * 48));
+        y += nameLines.length * 48 + 12;
+
+        if (product.brand) {
+          ctx.fillStyle = '#78716c';
+          ctx.font = `26px ${FONT}`;
+          ctx.fillText(product.brand, PAD, y + 22);
+          y += 40;
+        }
+
+        if (product.link) {
+          ctx.fillStyle = '#2563eb';
+          ctx.font = `20px ${FONT}`;
+          const linkLine = wrapCanvasText(ctx, product.link, CARD_W - PAD * 2)[0] || product.link;
+          ctx.fillText(linkLine, PAD, y + 18);
+        }
+
+        canvas.toBlob((blob) => {
+          if (!blob) { reject(new Error('合成失敗')); return; }
+          resolve(blob);
+        }, 'image/jpeg', 0.85);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    img.src = product.imageBase64;
+  });
 }
 
 // ============ 純 function：NowCard 同 window.getWidgetSummary 共用 ============
@@ -1862,7 +1958,7 @@ function SupplementManager({ slots, onSave, onClose, productLibrary, productCate
         </button>
       ))}
 
-      {showLibrary && <ProductLibraryModal products={productLibrary} onDelete={onDeleteFromLibrary} onClose={() => setShowLibrary(false)} />}
+      {showLibrary && <ProductLibraryModal products={productLibrary} onDelete={onDeleteFromLibrary} onClose={() => setShowLibrary(false)} productCategories={productCategories} onAddToLibrary={onAddToLibrary} />}
     </Modal>
   );
 }
@@ -1910,7 +2006,7 @@ function SkincareManager({ period, steps, onSave, onClose, productLibrary, produ
         </button>
       </div>
       <ItemsEditor items={local} onAdd={addStep} onUpdate={updateStep} onDelete={deleteStep} onReorder={setLocal} placeholder="例如：潔面" numbered productCategories={productCategories} onAddToLibrary={onAddToLibrary} />
-      {showLibrary && <ProductLibraryModal products={productLibrary} onDelete={onDeleteFromLibrary} onClose={() => setShowLibrary(false)} />}
+      {showLibrary && <ProductLibraryModal products={productLibrary} onDelete={onDeleteFromLibrary} onClose={() => setShowLibrary(false)} productCategories={productCategories} onAddToLibrary={onAddToLibrary} />}
     </Modal>
   );
 }
@@ -2142,11 +2238,12 @@ function AddToLibraryModal({ initial, categories, onSave, onClose }) {
   );
 }
 
-function ProductLibraryModal({ products, onDelete, onClose }) {
+function ProductLibraryModal({ products, onDelete, onClose, productCategories, onAddToLibrary }) {
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('全部');
   const [status, setStatus] = useState(null);
   const [shareFeedbackId, setShareFeedbackId] = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
 
   const categories = useMemo(() => Array.from(new Set(products.map(p => p.category))).filter(Boolean), [products]);
 
@@ -2183,13 +2280,19 @@ function ProductLibraryModal({ products, onDelete, onClose }) {
     setStatus(null);
     const text = [product.name, product.brand, product.link].filter(Boolean).join('\n');
     try {
+      let shareFile = null;
+      if (product.imageBase64) {
+        try {
+          const cardBlob = await composeShareCard(product);
+          shareFile = new File([cardBlob], `${product.name || 'product'}.jpg`, { type: 'image/jpeg' });
+        } catch {
+          shareFile = null; // 合成失敗就淨係文字分享，唔好累到成個分享功能死咗
+        }
+      }
       if (navigator.share) {
-        if (product.imageBase64 && navigator.canShare) {
-          const file = dataUrlToFile(product.imageBase64, `${product.name || 'product'}.jpg`);
-          if (navigator.canShare({ files: [file] })) {
-            await navigator.share({ files: [file], title: product.name, text });
-            return;
-          }
+        if (shareFile && navigator.canShare && navigator.canShare({ files: [shareFile] })) {
+          await navigator.share({ files: [shareFile], title: product.name, text });
+          return;
         }
         await navigator.share({ title: product.name, text });
         return;
@@ -2224,6 +2327,11 @@ function ProductLibraryModal({ products, onDelete, onClose }) {
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="搜尋名稱/品牌" className="w-full pl-8 pr-3 py-2 rounded-lg bg-white border border-stone-200 text-sm outline-none focus:border-stone-400" />
         </div>
+        {onAddToLibrary && (
+          <button onClick={() => setShowAddModal(true)} className="px-3 h-9 rounded-lg bg-stone-900 text-white text-xs flex items-center gap-1.5 active:scale-95 flex-shrink-0" style={{ fontWeight: 500 }}>
+            <Plus size={12} />新增產品
+          </button>
+        )}
       </div>
       <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-white border border-stone-200 text-sm mb-3 outline-none focus:border-stone-400">
         <option value="全部">全部分類</option>
@@ -2235,7 +2343,7 @@ function ProductLibraryModal({ products, onDelete, onClose }) {
       )}
 
       {Object.keys(grouped).length === 0 ? (
-        <EmptyState icon={Library} title="產品庫未有嘢" desc="喺編輯項目度撳「加入產品庫」開始收藏" />
+        <EmptyState icon={Library} title="產品庫未有嘢" desc="撳上面「新增產品」，或者喺編輯項目度撳「加入產品庫」開始收藏" />
       ) : Object.entries(grouped).map(([cat, items]) => (
         <div key={cat} className="mb-4">
           <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-2 px-1">{cat}</p>
@@ -2261,6 +2369,14 @@ function ProductLibraryModal({ products, onDelete, onClose }) {
           ))}
         </div>
       ))}
+
+      {showAddModal && (
+        <AddToLibraryModal
+          categories={productCategories || []}
+          onSave={onAddToLibrary}
+          onClose={() => setShowAddModal(false)}
+        />
+      )}
     </Modal>
   );
 }

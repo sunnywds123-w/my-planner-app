@@ -1162,14 +1162,26 @@ function CopyDayModal({ sourceDay, onConfirm, onClose }) {
 function HealthTab({ slots, skincare, skincareTimes, onSaveSlots, onSaveSkincare, onSaveSkincareTimes, productLibrary, onAddToLibrary, onDeleteFromLibrary }) {
   const [section, setSection] = useState('supps');
   const productCategories = useMemo(() => getProductCategories(skincare, slots), [skincare, slots]);
+  const [now, setNow] = useState(new Date());
   const [currentDate, setCurrentDate] = useState(new Date());
   const [record, setRecord] = useState({ supps: {}, skincare: {} });
+  const pinnedToToday = useRef(true);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const dateStr = fmtDate(now);
+  useEffect(() => {
+    if (pinnedToToday.current) setCurrentDate(new Date(now));
+  }, [dateStr]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 自動 focus 而家嘅時段（首次載入時）
   useEffect(() => {
     if (!isSameDate(currentDate, new Date())) return;
-    const now = new Date();
-    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const nowTime = new Date();
+    const nowMinutes = nowTime.getHours() * 60 + nowTime.getMinutes();
     // 睇下 supp 定護膚時間更近
     let nearest = { type: 'supps', diff: Infinity };
     slots.forEach(s => {
@@ -1208,9 +1220,13 @@ function HealthTab({ slots, skincare, skincareTimes, onSaveSlots, onSaveSkincare
   const toggleSupp = (sId, iId) => { const k = `${sId}:${iId}`; saveRecord({ ...record, supps: { ...record.supps, [k]: !record.supps[k] } }); };
   const toggleSkin = (p, id) => { const k = `${p}:${id}`; saveRecord({ ...record, skincare: { ...record.skincare, [k]: !record.skincare[k] } }); };
 
-  const goPrev = () => setCurrentDate(new Date(currentDate.getTime() - 86400000));
-  const goNext = () => setCurrentDate(new Date(currentDate.getTime() + 86400000));
-  const goToday = () => setCurrentDate(new Date());
+  const goPrev = () => { pinnedToToday.current = false; setCurrentDate(new Date(currentDate.getTime() - 86400000)); };
+  const goNext = () => {
+    const next = new Date(currentDate.getTime() + 86400000);
+    pinnedToToday.current = isSameDate(next, new Date());
+    setCurrentDate(next);
+  };
+  const goToday = () => { pinnedToToday.current = true; setCurrentDate(new Date()); };
   const isToday = isSameDate(currentDate, new Date());
 
   return (

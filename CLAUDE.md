@@ -308,19 +308,12 @@ Alternative: [有冇其他做法]
 4. `472bb06` feat: 產品庫加獨立新增入口 + 分享圖片合成資訊卡
 5. `f3f60f7` feat: 計劃日視圖加「複製到其他日」
 6. `812f92a` feat: 產品庫加「WhatsApp 分享」按鈕（原圖+文字分開）
+7. `PENDING_HASH` fix: 護膚/supplement 打剔跟住換日自動 reset
 
 （另一個 session 同期完成：`5b18c58` 統計報告時間分類拆做 4 個
 睡眠/自我提升類/一般事項/工作類 —— 呢個 commit 同時解決咗低下面
 提到嘅「睡眠永遠顯示 0」bug，同埋落實咗「時間分類自由配搭」呢個
 功能，兩樣都已經做完，唔再係待辦）
-
-### 已知 bug（尚未修）
-- **Supplement/護膚打剔狀態冇跟住換日自動 reset**：`HealthTab`
-  （[src/App.jsx:1165](src/App.jsx#L1165)）嘅 `currentDate` 用
-  `useState(new Date())` 淨係喺 mount 嗰刻計一次，冇好似 `NowCard`
-  咁用 60 秒 interval 追蹤而家日期。跨午夜冇 refresh 個 tab 嘅話，
-  today 會停留喺舊日期。同之前修過嘅「FocusTab 換日自動 reset」
-  （`8a1bfe2`）係同一類 bug，可以參考嗰次嘅做法
 
 ### 已解決（原本記錄緊等緊修，而家已經喺 `5b18c58` 做咗）
 - ~~統計報告「睡眠」永遠顯示 0~~ —— `ImportantAnalysis` 而家用
@@ -330,6 +323,11 @@ Alternative: [有冇其他做法]
 - ~~「時間分類自由配搭」功能~~ —— 已經做咗：每個活動加咗
   `category` 欄位喺 `ActivityForm` 度俾用戶自己揀，`deriveActivityCategory()`
   負責幫舊資料遷移做預設值
+- ~~Supplement/護膚打剔狀態冇跟住換日自動 reset~~ —— `HealthTab`
+  加返 `now` state + 60 秒 interval，跟 `FocusTab`（`8a1bfe2`）
+  同一套 self-correcting 換日邏輯；另加 `pinnedToToday` flag
+  分辨「跟緊今日」定「手動揀咗歷史日期」，唔會累到查歷史記錄嗰陣
+  被搶走個 view
 
 ### 待進行 / 討論緊
 - 整個 App 視覺改造，減少 AI 感（emoji 用量、色調、字體、版面）——

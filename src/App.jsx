@@ -175,7 +175,7 @@ const jsDayToMonIdx = (d) => d === 0 ? 6 : d - 1;
 
 // Migration：supplement/skincare item 補齊 brand/purchaseLink/imageUrl（Rule 5：
 // optional 新欄位，舊資料冇就 fallback 做空字串，唔會令現有 item 顯示出錯）
-const normalizeItem = (it) => ({ ...it, brand: it.brand || '', purchaseLink: it.purchaseLink || '', imageUrl: it.imageUrl || '' });
+const normalizeItem = (it) => ({ ...it, brand: it.brand || '', purchaseLink: it.purchaseLink || '', imageUrl: it.imageUrl || '', note: it.note || '' });
 
 // ============ 產品庫（product-library-v1）共用 function ============
 
@@ -792,7 +792,7 @@ function MorningMode({ skincare, slots, record, onToggleSkin, onToggleSupp, wate
         {amSteps.length === 0 ? (
           <EmptyState icon={Sparkles} title="未設定護膚步驟" desc="去健康 tab 加返" />
         ) : amSteps.map((step, idx) => (
-          <ChecklistItem key={step.id} label={step.name} checked={!!record.skincare[`am:${step.id}`]} index={idx + 1} tint="blue" onClick={() => onToggleSkin('am', step.id)} onOpenDetail={() => setDetailItem(step)} />
+          <ChecklistItem key={step.id} label={step.name} subtitle={step.note} checked={!!record.skincare[`am:${step.id}`]} index={idx + 1} tint="blue" onClick={() => onToggleSkin('am', step.id)} onOpenDetail={() => setDetailItem(step)} />
         ))}
       </div>
 
@@ -801,7 +801,7 @@ function MorningMode({ skincare, slots, record, onToggleSkin, onToggleSupp, wate
         {!breakfastSlot || breakfastSlot.items.length === 0 ? (
           <EmptyState icon={Pill} title='未設定「早餐後」時段' desc="去健康 tab 加返" />
         ) : breakfastSlot.items.map(item => (
-          <ChecklistItem key={item.id} label={item.name} checked={!!record.supps[`${breakfastSlot.id}:${item.id}`]} tint="emerald" onClick={() => onToggleSupp(breakfastSlot.id, item.id)} onOpenDetail={() => setDetailItem(item)} />
+          <ChecklistItem key={item.id} label={item.name} subtitle={item.note} checked={!!record.supps[`${breakfastSlot.id}:${item.id}`]} tint="emerald" onClick={() => onToggleSupp(breakfastSlot.id, item.id)} onOpenDetail={() => setDetailItem(item)} />
         ))}
       </div>
 
@@ -849,7 +849,7 @@ function DynamicMode({ activities, template, todayIdx, slots, skincare, skincare
           {nowSlot.items.length === 0 ? (
             <p className="text-xs text-stone-400 italic px-1" style={{ fontFamily: 'Georgia, serif' }}>未有項目</p>
           ) : nowSlot.items.map(item => (
-            <ChecklistItem key={item.id} label={item.name} checked={!!record.supps[`${nowSlot.id}:${item.id}`]} isNow tint="emerald" onClick={() => onToggleSupp(nowSlot.id, item.id)} onOpenDetail={() => setDetailItem(item)} />
+            <ChecklistItem key={item.id} label={item.name} subtitle={item.note} checked={!!record.supps[`${nowSlot.id}:${item.id}`]} isNow tint="emerald" onClick={() => onToggleSupp(nowSlot.id, item.id)} onOpenDetail={() => setDetailItem(item)} />
           ))}
         </div>
       )}
@@ -865,7 +865,7 @@ function DynamicMode({ activities, template, todayIdx, slots, skincare, skincare
           {skincare[nowSkinPeriod].length === 0 ? (
             <EmptyState icon={Sparkles} title="未設定護膚步驟" desc="去健康 tab 加返" />
           ) : skincare[nowSkinPeriod].map(step => (
-            <ChecklistItem key={step.id} label={step.name} checked={!!record.skincare[`${nowSkinPeriod}:${step.id}`]} isNow tint="blue" onClick={() => onToggleSkin(nowSkinPeriod, step.id)} onOpenDetail={() => setDetailItem(step)} />
+            <ChecklistItem key={step.id} label={step.name} subtitle={step.note} checked={!!record.skincare[`${nowSkinPeriod}:${step.id}`]} isNow tint="blue" onClick={() => onToggleSkin(nowSkinPeriod, step.id)} onOpenDetail={() => setDetailItem(step)} />
           ))}
         </div>
       )}
@@ -904,7 +904,7 @@ function WindDownMode({ skincare, record, onToggleSkin, onToggleWindDown, settin
         {pmSteps.length === 0 ? (
           <EmptyState icon={Sparkles} title="未設定護膚步驟" desc="去健康 tab 加返" />
         ) : pmSteps.map((step, idx) => (
-          <ChecklistItem key={step.id} label={step.name} checked={!!record.skincare[`pm:${step.id}`]} index={idx + 1} tint="blue" onClick={() => onToggleSkin('pm', step.id)} onOpenDetail={() => setDetailItem(step)} />
+          <ChecklistItem key={step.id} label={step.name} subtitle={step.note} checked={!!record.skincare[`pm:${step.id}`]} index={idx + 1} tint="blue" onClick={() => onToggleSkin('pm', step.id)} onOpenDetail={() => setDetailItem(step)} />
         ))}
       </div>
 
@@ -1341,7 +1341,7 @@ function SupplementsSection({ slots, record, onToggle, onSaveSlots, isToday, pro
           ) : slot.items.map(item => {
             const checked = !!record.supps[`${slot.id}:${item.id}`];
             return (
-              <ChecklistItem key={item.id} label={item.name} checked={checked} isNow={isNow} tint="emerald" onClick={() => onToggle(slot.id, item.id)} onOpenDetail={() => setDetailItem(item)} />
+              <ChecklistItem key={item.id} label={item.name} subtitle={item.note} checked={checked} isNow={isNow} tint="emerald" onClick={() => onToggle(slot.id, item.id)} onOpenDetail={() => setDetailItem(item)} />
             );
           })}
         </div>
@@ -1406,7 +1406,7 @@ function SkincareSection({ skincare, skincareTimes, record, onToggle, onSaveSkin
             ) : steps.map((step, idx) => {
               const isChecked = !!record.skincare[`${period}:${step.id}`];
               return (
-                <ChecklistItem key={step.id} label={step.name} checked={isChecked} isNow={isNow} index={idx + 1} tint="blue" onClick={() => onToggle(period, step.id)} onOpenDetail={() => setDetailItem(step)} />
+                <ChecklistItem key={step.id} label={step.name} subtitle={step.note} checked={isChecked} isNow={isNow} index={idx + 1} tint="blue" onClick={() => onToggle(period, step.id)} onOpenDetail={() => setDetailItem(step)} />
               );
             })}
           </div>
@@ -2054,7 +2054,7 @@ function SupplementManager({ slots, onSave, onClose, productLibrary, productCate
     [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
     setLocal(next);
   };
-  const addItem = (sId, data) => setLocal(local.map(s => s.id === sId ? { ...s, items: [...s.items, { brand: '', purchaseLink: '', imageUrl: '', ...data, id: `item-${Date.now()}` }] } : s));
+  const addItem = (sId, data) => setLocal(local.map(s => s.id === sId ? { ...s, items: [...s.items, { brand: '', purchaseLink: '', imageUrl: '', note: '', ...data, id: `item-${Date.now()}` }] } : s));
   const updateItem = (sId, iId, data) => setLocal(local.map(s => s.id === sId ? { ...s, items: s.items.map(i => i.id === iId ? { ...i, ...data } : i) } : s));
   const deleteItem = (sId, iId) => setLocal(local.map(s => s.id === sId ? { ...s, items: s.items.filter(i => i.id !== iId) } : s));
   const reorderItems = (sId, newItems) => setLocal(local.map(s => s.id === sId ? { ...s, items: newItems } : s));
@@ -2139,7 +2139,7 @@ function SkincareManager({ period, steps, onSave, onClose, productLibrary, produ
   const [local, setLocal] = useState(steps);
   const [showLibrary, setShowLibrary] = useState(false);
   const handleClose = () => { onSave(local); onClose(); };
-  const addStep = (data) => setLocal([...local, { brand: '', purchaseLink: '', imageUrl: '', ...data, id: `step-${Date.now()}` }]);
+  const addStep = (data) => setLocal([...local, { brand: '', purchaseLink: '', imageUrl: '', note: '', ...data, id: `step-${Date.now()}` }]);
   const updateStep = (id, data) => setLocal(local.map(s => s.id === id ? { ...s, ...data } : s));
   const deleteStep = (id) => setLocal(local.filter(s => s.id !== id));
 
@@ -2248,11 +2248,12 @@ function ItemForm({ initial, onSubmit, onCancel, placeholder, productCategories,
   const [brand, setBrand] = useState(initial?.brand || '');
   const [purchaseLink, setPurchaseLink] = useState(initial?.purchaseLink || '');
   const [imageUrl, setImageUrl] = useState(initial?.imageUrl || '');
+  const [note, setNote] = useState(initial?.note || '');
   const [showAddToLibrary, setShowAddToLibrary] = useState(false);
 
   const handleSubmit = () => {
     if (!name.trim()) return;
-    onSubmit({ name: name.trim(), brand: brand.trim(), purchaseLink: purchaseLink.trim(), imageUrl: imageUrl.trim() });
+    onSubmit({ name: name.trim(), brand: brand.trim(), purchaseLink: purchaseLink.trim(), imageUrl: imageUrl.trim(), note: note.trim() });
   };
 
   return (
@@ -2261,7 +2262,8 @@ function ItemForm({ initial, onSubmit, onCancel, placeholder, productCategories,
       <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder={placeholder || '名稱'} autoFocus className="w-full px-3 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm mb-2 outline-none focus:border-stone-400" />
       <input type="text" value={brand} onChange={e => setBrand(e.target.value)} placeholder="品牌（選填）" className="w-full px-3 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm mb-2 outline-none focus:border-stone-400" />
       <input type="url" value={purchaseLink} onChange={e => setPurchaseLink(e.target.value)} placeholder="購買連結（選填）" className="w-full px-3 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm mb-2 outline-none focus:border-stone-400" />
-      <input type="url" value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="圖片網址（選填）" className="w-full px-3 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm mb-3 outline-none focus:border-stone-400" />
+      <input type="url" value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="圖片網址（選填）" className="w-full px-3 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm mb-2 outline-none focus:border-stone-400" />
+      <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="產品功能說明，例如：深層潔淨、適合油性皮膚（選填）" rows={2} className="w-full px-3 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm mb-3 outline-none focus:border-stone-400 resize-none" />
       <div className="flex gap-2">
         <button onClick={onCancel} className="flex-1 py-2 rounded-lg text-xs text-stone-600 bg-stone-100">取消</button>
         <button onClick={handleSubmit} disabled={!name.trim()} className="flex-1 py-2 rounded-lg text-xs text-white bg-stone-900 disabled:opacity-30" style={{ fontWeight: 500 }}>{initial ? '儲存' : '加入'}</button>
@@ -2589,7 +2591,8 @@ function ItemDetailModal({ item, onClose }) {
   const hasBrand = !!item.brand;
   const hasLink = !!item.purchaseLink;
   const hasImageUrl = !!item.imageUrl;
-  const hasAnyInfo = hasBrand || hasLink || hasImageUrl;
+  const hasNote = !!item.note;
+  const hasAnyInfo = hasBrand || hasLink || hasImageUrl || hasNote;
 
   return (
     <Modal title={item.name} onClose={onClose}>
@@ -2615,6 +2618,12 @@ function ItemDetailModal({ item, onClose }) {
             <div className="mb-4">
               <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-1">品牌</p>
               <p className="text-sm text-stone-900" style={{ fontWeight: 500 }}>{item.brand}</p>
+            </div>
+          )}
+          {hasNote && (
+            <div className="mb-4">
+              <p className="text-[10px] tracking-widest text-stone-500 uppercase mb-1">功能說明</p>
+              <p className="text-sm text-stone-700 whitespace-pre-wrap" style={{ lineHeight: 1.6 }}>{item.note}</p>
             </div>
           )}
           {hasLink && (
@@ -2679,7 +2688,7 @@ const CHECKLIST_TINTS = {
   blue: { bg: '#EEEDFE', border: '#AFA9EC', checkFill: '#534AB7', text: '#3C3489', strike: '#7F77DD80', indexText: '#534AB7' },
 };
 
-function ChecklistItem({ label, checked, isNow, index, tint = 'emerald', onClick, onOpenDetail }) {
+function ChecklistItem({ label, checked, isNow, index, tint = 'emerald', onClick, onOpenDetail, subtitle }) {
   const c = CHECKLIST_TINTS[tint];
   return (
     <div className="w-full mb-1.5 rounded-xl flex items-center transition-all" style={{ background: checked ? c.bg : (isNow ? '#fdfaf3' : '#ffffff'), border: `1px solid ${checked ? c.border : (isNow ? '#eccb85' : '#e7e5e4')}` }}>
@@ -2690,7 +2699,12 @@ function ChecklistItem({ label, checked, isNow, index, tint = 'emerald', onClick
         <div className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: checked ? c.checkFill : 'transparent', border: checked ? 'none' : '1.5px solid #d6d3d1' }}>
           {checked && <Check size={14} color="white" strokeWidth={2.5} />}
         </div>
-        <span className="text-base flex-1 truncate" style={{ color: checked ? c.text : '#1c1917', fontWeight: 500, textDecorationLine: checked ? 'line-through' : 'none', textDecorationColor: c.strike }}>{label}</span>
+        <div className="flex-1 min-w-0">
+          <span className="text-base block truncate" style={{ color: checked ? c.text : '#1c1917', fontWeight: 500, textDecorationLine: checked ? 'line-through' : 'none', textDecorationColor: c.strike }}>{label}</span>
+          {subtitle && (
+            <span className="text-xs block truncate" style={{ color: checked ? c.strike : '#a8a29e' }}>{subtitle}</span>
+          )}
+        </div>
       </button>
       {onOpenDetail && (
         <button onClick={onOpenDetail} aria-label="睇詳情" className="w-9 h-9 flex-shrink-0 flex items-center justify-center active:scale-90 mr-1">

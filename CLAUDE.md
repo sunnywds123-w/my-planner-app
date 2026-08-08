@@ -299,7 +299,7 @@ Alternative: [有冇其他做法]
 
 **Rule 4-7 優先級同 Rule 1-3 一樣高。** 呢啲規矩保護用戶嘅時間、data、同心血。
 
-## 近期進度（截至 2026-08-08）
+## 近期進度（截至 2026-08-09）
 
 ### 本次 session 完成（commit 順序）
 1. `b66248d` fix: Dynamic mode 補返護膚 Now badge
@@ -309,6 +309,11 @@ Alternative: [有冇其他做法]
 5. `f3f60f7` feat: 計劃日視圖加「複製到其他日」
 6. `812f92a` feat: 產品庫加「WhatsApp 分享」按鈕（原圖+文字分開）
 7. `58d7754` fix: 護膚/supplement 打剔跟住換日自動 reset
+8. `621b0f5` docs: CLAUDE.md 補上 58d7754 嘅實際 commit hash
+9. `b729ea5` style: 打剔清單 (ChecklistItem) 換成 purple 訊號色，減淡視覺重量
+10. `1b24cf5` style: 裝飾性 emoji 換做 lucide-react 線條 icon
+11. `9a580dc` style: 活動/時段 emoji 全面換做線條 icon（Part 2）
+12. `a6dc6e0` fix: EMOJI_TO_ICON 嘅 🏃 mapping 改用 Footprints
 
 （另一個 session 同期完成：`5b18c58` 統計報告時間分類拆做 4 個
 睡眠/自我提升類/一般事項/工作類 —— 呢個 commit 同時解決咗低下面
@@ -330,7 +335,12 @@ Alternative: [有冇其他做法]
   被搶走個 view
 
 ### 待進行 / 討論緊
-- 整個 App 視覺改造，減少 AI 感（emoji 用量、色調、字體、版面）——
-  討論緊方向，未落實
+- 整個 App 視覺改造，減少 AI 感 —— 方向已定：留白為主 + purple
+  （#3C3489 等）訊號色 + lucide-react 線條 icon。已完成：
+  ChecklistItem 打剔清單 purple 化（`b729ea5`）、裝飾性 emoji 換
+  icon（`1b24cf5`）、活動/時段 emoji 全面換做 icon picker
+  （`9a580dc`、`a6dc6e0` 修正 🏃 mapping）。未做：Button/Card 等
+  其他 shared component 套用同一套配色、狀態提示（⚠️✅⬜）emoji
+  要唔要換、purple 訊號色擴展去其他重點位（例如「連續達標」數字）
 
 

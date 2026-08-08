@@ -33,14 +33,40 @@ if (typeof window !== 'undefined' && !window.storage) {
 
 
 const DEFAULT_ACTIVITIES = [
-  { id: 'work', label: '工作', emoji: '💼', color: '#3b82f6', important: false },
-  { id: 'play', label: '玩樂', emoji: '🎮', color: '#ec4899', important: false },
-  { id: 'rest', label: '休息', emoji: '☕', color: '#a855f7', important: false },
-  { id: 'teach', label: '教學', emoji: '🎓', color: '#f59e0b', important: false },
-  { id: 'study', label: '學習', emoji: '📚', color: '#10b981', important: false },
-  { id: 'meal', label: '食飯', emoji: '🍽️', color: '#ef4444', important: false },
-  { id: 'training', label: '訓練', emoji: '🏋️', color: '#0891b2', important: false },
+  { id: 'work', label: '工作', emoji: '💼', color: '#3b82f6', category: 'work' },
+  { id: 'play', label: '玩樂', emoji: '🎮', color: '#ec4899', category: 'general' },
+  { id: 'rest', label: '休息', emoji: '☕', color: '#a855f7', category: 'general' },
+  { id: 'teach', label: '教學', emoji: '🎓', color: '#f59e0b', category: 'work' },
+  { id: 'study', label: '學習', emoji: '📚', color: '#10b981', category: 'general' },
+  { id: 'meal', label: '食飯', emoji: '🍽️', color: '#ef4444', category: 'general' },
+  { id: 'training', label: '訓練', emoji: '🏋️', color: '#0891b2', category: 'general' },
 ];
+
+// 「時間分類」4 個選項，喺 ActivityForm 揀選、ImportantAnalysis 分組用
+const ACTIVITY_CATEGORIES = [
+  { value: 'sleep', label: '睡眠' },
+  { value: 'growth', label: '自我提升類' },
+  { value: 'general', label: '一般事項' },
+  { value: 'work', label: '工作類' },
+];
+const ACTIVITY_CATEGORY_VALUES = ACTIVITY_CATEGORIES.map(c => c.value);
+
+// 呢兩個 regex 而家淨係俾 migration 用（讀取舊資料、冇 category 欄位嗰陣
+// 猜一次初始值），日常分類邏輯已經改用 activity.category，唔再靠估名
+const SLEEP_LABEL_RE = /瞓|睡/;
+const WORK_LABEL_RE = /工作|教學/;
+
+// 讀取 activities-v5 舊資料時幫冇 category 嘅活動計一個初始值：
+// 先睇個名係咪「瞓覺性質」→ sleep；唔係就睇返舊 important flag → growth；
+// 唔係就睇個名係咪「工作性質」→ work；乜都唔中就 general。
+// 已經有 category 嘅活動（包括用戶手動改過嘅）原封不動，唔會被覆蓋。
+function deriveActivityCategory(act) {
+  if (ACTIVITY_CATEGORY_VALUES.includes(act.category)) return act.category;
+  if (SLEEP_LABEL_RE.test(act.label)) return 'sleep';
+  if (act.important) return 'growth';
+  if (WORK_LABEL_RE.test(act.label)) return 'work';
+  return 'general';
+}
 
 const COLOR_PALETTE = ['#ef4444', '#f59e0b', '#eab308', '#84cc16', '#10b981', '#0891b2', '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#78716c', '#1c1917'];
 const ACTIVITY_EMOJIS = ['✨', '🎯', '💼', '🎮', '☕', '🎓', '📚', '🍽️', '🏋️', '💪', '🧘', '🛒', '🚗', '🏠', '💤', '📞', '✈️', '🎬', '🍳', '🐶', '🎵', '📝', '🌱', '⚽', '🎸', '🛏️', '🌅', '🧴'];
@@ -48,14 +74,14 @@ const SLOT_EMOJIS = ['🌅', '☀️', '🌤️', '🌆', '🌙', '⭐', '💪',
 
 // 新增活動類別嘅「快速加入」預設（配合 self-improvement daily building blocks）
 const PRESET_ACTIVITIES = [
-  { label: '起身', emoji: '🌅', color: '#f59e0b' },
-  { label: '保養', emoji: '🧴', color: '#ec4899' },
-  { label: '學習', emoji: '📚', color: '#10b981' },
-  { label: '食飯', emoji: '🍽️', color: '#ef4444' },
-  { label: '訓練', emoji: '🏋️', color: '#0891b2' },
-  { label: '工作', emoji: '💼', color: '#3b82f6' },
-  { label: '瞓覺', emoji: '🛏️', color: '#6366f1' },
-  { label: '反思', emoji: '📝', color: '#84cc16' },
+  { label: '起身', emoji: '🌅', color: '#f59e0b', category: 'general' },
+  { label: '保養', emoji: '🧴', color: '#ec4899', category: 'general' },
+  { label: '學習', emoji: '📚', color: '#10b981', category: 'growth' },
+  { label: '食飯', emoji: '🍽️', color: '#ef4444', category: 'general' },
+  { label: '訓練', emoji: '🏋️', color: '#0891b2', category: 'growth' },
+  { label: '工作', emoji: '💼', color: '#3b82f6', category: 'work' },
+  { label: '瞓覺', emoji: '🛏️', color: '#6366f1', category: 'sleep' },
+  { label: '反思', emoji: '📝', color: '#84cc16', category: 'growth' },
 ];
 
 const DEFAULT_SUPPLEMENT_SLOTS = [
@@ -369,9 +395,16 @@ export default function App() {
           window.storage.get(PRODUCT_LIBRARY_KEY).catch(() => null),
         ]);
         if (a?.value) {
-          // Migration：舊資料冇 important 欄位，fallback 做 false，唔會令類別消失或者出錯
+          // Migration：舊資料冇 category 欄位嘅活動，用 deriveActivityCategory 猜一次
+          // 初始值（睡眠/自我提升/工作/一般）；已經有 category 嘅（包括用戶手動改過）
+          // 原封不動。猜完之後寫返落 storage，下次讀就唔使再猜。
           const parsedActs = JSON.parse(a.value);
-          setActivities(parsedActs.map(act => ({ ...act, important: !!act.important })));
+          const migratedActs = parsedActs.map(act => ({ ...act, category: deriveActivityCategory(act) }));
+          setActivities(migratedActs);
+          const needsMigration = parsedActs.some(act => !ACTIVITY_CATEGORY_VALUES.includes(act.category));
+          if (needsMigration) {
+            window.storage.set(ACTIVITIES_KEY, JSON.stringify(migratedActs)).catch(() => {});
+          }
         }
         if (t?.value) setTemplate(JSON.parse(t.value));
         if (s?.value) {
@@ -1553,19 +1586,20 @@ function StatsSection({ activities, template }) {
   );
 }
 
-// 「瞓覺性質」類別靠 label 文字識別（含「瞓」或「睡」），唔另加欄位
-const SLEEP_LABEL_RE = /瞓|睡/;
-// 「工作類」（工作、教學）都係靠 label 文字識別，跟返 SLEEP_LABEL_RE 一樣嘅
-// 做法，唔加新欄位、唔使 storage migration
-const WORK_LABEL_RE = /工作|教學/;
 // 自我增值時數門檻：30 分鐘。Template 現時逐格係成粒鐘計，無半粒鐘資料，
 // 所以呢個門檻實務上等於「0 小時」先會觸發；寫成 0.5 小時保留語意，
 // 將來如果 template granularity 變幼咗都仲啱用。
 const SELF_IMPROVEMENT_MIN_HOURS = 0.5;
 
 function ImportantAnalysis({ activities, stats, totalHours }) {
-  const importantActs = activities.filter(a => a.important);
-  const anySelected = importantActs.length > 0;
+  const sleepActs = activities.filter(a => a.category === 'sleep');
+  const growthActs = activities.filter(a => a.category === 'growth');
+  const generalActs = activities.filter(a => a.category === 'general');
+  const workActs = activities.filter(a => a.category === 'work');
+
+  // 「重要」呢個 umbrella 概念保留返做 30% 門檻警告嘅計算基礎（睡眠 + 自我提升），
+  // 未設定任何 sleep/growth 分類，即係用戶未開始用呢個分類，顯示提示
+  const anySelected = sleepActs.length + growthActs.length > 0;
 
   if (!anySelected) {
     return (
@@ -1576,22 +1610,16 @@ function ImportantAnalysis({ activities, stats, totalHours }) {
     );
   }
 
-  // 「重要」呢個 umbrella 概念保留返做 30% 門檻警告嘅計算基礎（睡眠 + 自我提升）
-  const importantHours = importantActs.reduce((sum, a) => sum + (stats[a.id] || 0), 0);
-  const importantPct = totalHours > 0 ? (importantHours / totalHours * 100) : 0;
-
-  const sleepActs = importantActs.filter(a => SLEEP_LABEL_RE.test(a.label));
   const hasSleepCategory = sleepActs.length > 0;
   const sleepHours = sleepActs.reduce((sum, a) => sum + (stats[a.id] || 0), 0);
-  const selfImprovementHours = importantHours - sleepHours;
+  const selfImprovementHours = growthActs.reduce((sum, a) => sum + (stats[a.id] || 0), 0);
+  const generalHours = generalActs.reduce((sum, a) => sum + (stats[a.id] || 0), 0);
+  const workHours = workActs.reduce((sum, a) => sum + (stats[a.id] || 0), 0);
+
+  const importantHours = sleepHours + selfImprovementHours;
+  const importantPct = totalHours > 0 ? (importantHours / totalHours * 100) : 0;
   const sleepPct = totalHours > 0 ? (sleepHours / totalHours * 100) : 0;
   const selfImprovementPct = totalHours > 0 ? (selfImprovementHours / totalHours * 100) : 0;
-
-  const unimportantActs = activities.filter(a => !a.important);
-  const workActs = unimportantActs.filter(a => WORK_LABEL_RE.test(a.label));
-  const workHours = workActs.reduce((sum, a) => sum + (stats[a.id] || 0), 0);
-  const generalActs = unimportantActs.filter(a => !WORK_LABEL_RE.test(a.label));
-  const generalHours = generalActs.reduce((sum, a) => sum + (stats[a.id] || 0), 0);
   const workPct = totalHours > 0 ? (workHours / totalHours * 100) : 0;
   const generalPct = totalHours > 0 ? (generalHours / totalHours * 100) : 0;
 
@@ -1861,6 +1889,7 @@ function SortableActivityItem({ act, reorderMode, onEdit, onDelete, onToggleImpo
     zIndex: isDragging ? 10 : undefined,
     position: 'relative',
   };
+  const categoryLabel = ACTIVITY_CATEGORIES.find(c => c.value === act.category)?.label;
   return (
     <div ref={setNodeRef} style={style} className="flex items-center gap-3 py-2.5 px-4 mb-1.5 rounded-xl bg-white border border-stone-200">
       {reorderMode && (
@@ -1870,6 +1899,7 @@ function SortableActivityItem({ act, reorderMode, onEdit, onDelete, onToggleImpo
       )}
       <span className="text-lg">{act.emoji}</span>
       <span className="flex-1 text-sm text-stone-900 truncate" style={{ fontWeight: 500 }}>{act.label}</span>
+      {categoryLabel && <span className="text-[10px] px-2 py-0.5 rounded-full bg-stone-100 text-stone-500 flex-shrink-0">{categoryLabel}</span>}
       <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: act.color }} />
       {!reorderMode && (
         <div className="flex gap-1">
@@ -1936,6 +1966,7 @@ function ActivityForm({ initial, onSubmit, onCancel }) {
   const [label, setLabel] = useState(initial?.label || '');
   const [emoji, setEmoji] = useState(initial?.emoji || '✨');
   const [color, setColor] = useState(initial?.color || COLOR_PALETTE[6]);
+  const [category, setCategory] = useState(initial?.category || 'general');
 
   return (
     <div className="p-3 mb-2 rounded-xl bg-white border-2 border-stone-900">
@@ -1953,9 +1984,17 @@ function ActivityForm({ initial, onSubmit, onCancel }) {
           <button key={c} onClick={() => setColor(c)} className="aspect-square rounded-full" style={{ background: c, transform: color === c ? 'scale(1.15)' : 'scale(1)', boxShadow: color === c ? `0 0 0 2px white, 0 0 0 4px ${c}` : 'none' }} />
         ))}
       </div>
+      <p className="text-[10px] text-stone-500 mb-1">時間分類</p>
+      <div className="grid grid-cols-4 gap-1 mb-3">
+        {ACTIVITY_CATEGORIES.map(c => (
+          <button key={c.value} onClick={() => setCategory(c.value)} className="py-2 rounded-lg text-[11px] transition-all" style={{ background: category === c.value ? '#1c1917' : '#fafaf9', color: category === c.value ? 'white' : '#57534e', border: `1px solid ${category === c.value ? '#1c1917' : '#e7e5e4'}`, fontWeight: category === c.value ? 600 : 400 }}>
+            {c.label}
+          </button>
+        ))}
+      </div>
       <div className="flex gap-2">
         <button onClick={onCancel} className="flex-1 py-2 rounded-lg text-xs text-stone-600 bg-stone-100">取消</button>
-        <button onClick={() => { if (label.trim()) onSubmit({ label: label.trim(), emoji, color }); }} disabled={!label.trim()} className="flex-1 py-2 rounded-lg text-xs text-white bg-stone-900 disabled:opacity-30" style={{ fontWeight: 500 }}>{initial ? '儲存' : '加入'}</button>
+        <button onClick={() => { if (label.trim()) onSubmit({ label: label.trim(), emoji, color, category }); }} disabled={!label.trim()} className="flex-1 py-2 rounded-lg text-xs text-white bg-stone-900 disabled:opacity-30" style={{ fontWeight: 500 }}>{initial ? '儲存' : '加入'}</button>
       </div>
     </div>
   );

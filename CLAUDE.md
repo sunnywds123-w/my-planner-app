@@ -299,4 +299,40 @@ Alternative: [有冇其他做法]
 
 **Rule 4-7 優先級同 Rule 1-3 一樣高。** 呢啲規矩保護用戶嘅時間、data、同心血。
 
+## 近期進度（截至 2026-08-08）
+
+### 本次 session 完成（commit 順序）
+1. `b66248d` fix: Dynamic mode 補返護膚 Now badge
+2. `6251f70` feat: Backup modal 加入分享檔案匯出 + 檔案上載匯入
+3. `d3cda43` feat: 新增產品庫功能（護膚/supplement 好物收藏 + 分享）
+4. `472bb06` feat: 產品庫加獨立新增入口 + 分享圖片合成資訊卡
+5. `f3f60f7` feat: 計劃日視圖加「複製到其他日」
+6. `812f92a` feat: 產品庫加「WhatsApp 分享」按鈕（原圖+文字分開）
+
+（另一個 session 同期完成：`5b18c58` 統計報告時間分類拆做 4 個
+睡眠/自我提升類/一般事項/工作類 —— 呢個 commit 同時解決咗低下面
+提到嘅「睡眠永遠顯示 0」bug，同埋落實咗「時間分類自由配搭」呢個
+功能，兩樣都已經做完，唔再係待辦）
+
+### 已知 bug（尚未修）
+- **Supplement/護膚打剔狀態冇跟住換日自動 reset**：`HealthTab`
+  （[src/App.jsx:1165](src/App.jsx#L1165)）嘅 `currentDate` 用
+  `useState(new Date())` 淨係喺 mount 嗰刻計一次，冇好似 `NowCard`
+  咁用 60 秒 interval 追蹤而家日期。跨午夜冇 refresh 個 tab 嘅話，
+  today 會停留喺舊日期。同之前修過嘅「FocusTab 換日自動 reset」
+  （`8a1bfe2`）係同一類 bug，可以參考嗰次嘅做法
+
+### 已解決（原本記錄緊等緊修，而家已經喺 `5b18c58` 做咗）
+- ~~統計報告「睡眠」永遠顯示 0~~ —— `ImportantAnalysis` 而家用
+  activity 明確嘅 `category` 欄位分組（sleep/growth/general/work），
+  唔再靠 `SLEEP_LABEL_RE` 估名 + `important` flag。舊 regex 淨係
+  留低俾 migration（`activities-v5` 冇 category 欄位嘅舊資料）用
+- ~~「時間分類自由配搭」功能~~ —— 已經做咗：每個活動加咗
+  `category` 欄位喺 `ActivityForm` 度俾用戶自己揀，`deriveActivityCategory()`
+  負責幫舊資料遷移做預設值
+
+### 待進行 / 討論緊
+- 整個 App 視覺改造，減少 AI 感（emoji 用量、色調、字體、版面）——
+  討論緊方向，未落實
+
 

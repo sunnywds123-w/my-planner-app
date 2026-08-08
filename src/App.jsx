@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser, Star, ExternalLink, Share2, FileUp, Library, ImagePlus, Search, MessageCircle, Sunrise, Sun, Moon, Droplet, GlassWater, Drumstick, Footprints, BedDouble } from 'lucide-react';
+import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser, Star, ExternalLink, Share2, FileUp, Library, ImagePlus, Search, MessageCircle, Sunrise, Sun, Moon, Droplet, GlassWater, Drumstick, Footprints, BedDouble, Target, Briefcase, Gamepad2, Coffee, GraduationCap, BookOpen, UtensilsCrossed, Dumbbell, Zap, Flower2, ShoppingCart, Car, Home, Phone, Plane, Clapperboard, ChefHat, Dog, Music, NotebookPen, Sprout, CircleDot, Guitar, Bed, CloudSun, Sunset, PersonStanding, CupSoda, AlarmClock } from 'lucide-react';
 import { DndContext, closestCenter, useSensor, useSensors, MouseSensor, TouchSensor } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -71,6 +71,23 @@ function deriveActivityCategory(act) {
 const COLOR_PALETTE = ['#ef4444', '#f59e0b', '#eab308', '#84cc16', '#10b981', '#0891b2', '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#78716c', '#1c1917'];
 const ACTIVITY_EMOJIS = ['✨', '🎯', '💼', '🎮', '☕', '🎓', '📚', '🍽️', '🏋️', '💪', '🧘', '🛒', '🚗', '🏠', '💤', '📞', '✈️', '🎬', '🍳', '🐶', '🎵', '📝', '🌱', '⚽', '🎸', '🛏️', '🌅', '🧴'];
 const SLOT_EMOJIS = ['🌅', '☀️', '🌤️', '🌆', '🌙', '⭐', '💪', '🏃', '🧘', '🍽️', '☕', '🥤', '💊', '⏰'];
+
+const EMOJI_TO_ICON = {
+  '✨': Sparkles, '🎯': Target, '💼': Briefcase, '🎮': Gamepad2, '☕': Coffee,
+  '🎓': GraduationCap, '📚': BookOpen, '🍽️': UtensilsCrossed, '🏋️': Dumbbell,
+  '💪': Zap, '🧘': Flower2, '🛒': ShoppingCart, '🚗': Car, '🏠': Home,
+  '💤': Moon, '📞': Phone, '✈️': Plane, '🎬': Clapperboard, '🍳': ChefHat,
+  '🐶': Dog, '🎵': Music, '📝': NotebookPen, '🌱': Sprout, '⚽': CircleDot,
+  '🎸': Guitar, '🛏️': Bed, '🌅': Sunrise, '🧴': Droplet, '☀️': Sun,
+  '🌤️': CloudSun, '🌆': Sunset, '🌙': Moon, '⭐': Star, '🏃': PersonStanding,
+  '🥤': CupSoda, '💊': Pill, '⏰': AlarmClock,
+};
+
+function ActivityIcon({ emoji, size = 16, color, className }) {
+  const Icon = EMOJI_TO_ICON[emoji];
+  if (!Icon) return <span style={{ fontSize: size }}>{emoji}</span>;
+  return <Icon size={size} color={color} className={className} strokeWidth={1.75} />;
+}
 
 // 新增活動類別嘅「快速加入」預設（配合 self-improvement daily building blocks）
 const PRESET_ACTIVITIES = [
@@ -824,7 +841,7 @@ function DynamicMode({ activities, template, todayIdx, slots, skincare, skincare
       {nowSlot && (
         <div className="mb-4">
           <div className="flex items-baseline gap-2 mb-2 px-1">
-            <span className="text-lg">{nowSlot.emoji}</span>
+            <ActivityIcon emoji={nowSlot.emoji} size={18} className="text-stone-400" />
             <h3 className="text-base text-stone-900" style={{ fontWeight: 600 }}>{nowSlot.label}</h3>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800" style={{ fontWeight: 600 }}>Now</span>
             <span className="text-[11px] text-stone-400 ml-auto">{nowSlot.items.filter(i => record.supps[`${nowSlot.id}:${i.id}`]).length}/{nowSlot.items.length}</span>
@@ -1021,7 +1038,7 @@ function PlanTab({ activities, template, onSaveTemplate, onSaveActivities }) {
                     <div className="flex-1 flex items-center gap-2.5">
                       {activity ? (
                         <>
-                          <span className="text-xl">{activity.emoji}</span>
+                          <ActivityIcon emoji={activity.emoji} size={20} color={activity.color} />
                           <span className="text-base text-stone-900" style={{ fontWeight: 500 }}>{activity.label}</span>
                         </>
                       ) : (
@@ -1039,7 +1056,7 @@ function PlanTab({ activities, template, onSaveTemplate, onSaveActivities }) {
                         const selected = actId === act.id;
                         return (
                           <button key={act.id} onClick={() => handleSelect(currentDay, hour, act.id)} className="flex flex-col items-center gap-1 py-2.5 px-1 rounded-lg transition-all active:scale-95" style={{ background: selected ? act.color : act.color + '15', border: `1px solid ${selected ? act.color : 'transparent'}` }}>
-                            <span className="text-lg leading-none">{act.emoji}</span>
+                            <ActivityIcon emoji={act.emoji} size={18} color={selected ? '#fff' : act.color} />
                             <span className="text-[11px] leading-tight" style={{ color: selected ? 'white' : '#1c1917', fontWeight: selected ? 600 : 500 }}>{act.label}</span>
                           </button>
                         );
@@ -1093,7 +1110,7 @@ function PlanTab({ activities, template, onSaveTemplate, onSaveActivities }) {
                       style={{ background: activity ? activity.color : '#fff', border: activity ? 'none' : '1px solid #e7e5e4' }}
                       title={activity ? activity.label : '空'}
                     >
-                      {activity && <span className="text-xs">{activity.emoji}</span>}
+                      {activity && <ActivityIcon emoji={activity.emoji} size={12} color="#fff" />}
                     </button>
                   );
                 })}
@@ -1106,7 +1123,7 @@ function PlanTab({ activities, template, onSaveTemplate, onSaveActivities }) {
             <div className="flex flex-wrap gap-1.5">
               {activities.map(act => (
                 <div key={act.id} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs" style={{ background: act.color + '15', color: '#1c1917' }}>
-                  <span>{act.emoji}</span>
+                  <ActivityIcon emoji={act.emoji} size={12} color={act.color} />
                   <span>{act.label}</span>
                 </div>
               ))}
@@ -1305,7 +1322,7 @@ function SupplementsSection({ slots, record, onToggle, onSaveSlots, isToday, pro
         return (
         <div key={slot.id} className="mb-4">
           <div className="flex items-baseline gap-2 mb-2 px-1">
-            <span className="text-lg">{slot.emoji}</span>
+            <ActivityIcon emoji={slot.emoji} size={18} className="text-stone-400" />
             <h3 className="text-base text-stone-900" style={{ fontWeight: 600 }}>{slot.label}</h3>
             {slot.time && (
               <span className="text-[10px] text-stone-500 tabular-nums" style={{ fontFamily: 'Georgia, serif' }}>
@@ -1567,7 +1584,7 @@ function StatsSection({ activities, template }) {
               <div key={act.id} className="mb-3">
                 <div className="flex items-center justify-between mb-1.5 px-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-base">{act.emoji}</span>
+                    <ActivityIcon emoji={act.emoji} size={16} color={act.color} />
                     <span className="text-sm text-stone-900" style={{ fontWeight: 500 }}>{act.label}</span>
                   </div>
                   <div className="flex items-baseline gap-1.5">
@@ -1589,7 +1606,7 @@ function StatsSection({ activities, template }) {
               <div className="mt-2 flex flex-wrap gap-1.5 px-1">
                 {sortedActs.filter(a => a.hours === 0).map(a => (
                   <div key={a.id} className="flex items-center gap-1 px-2 py-1 rounded-full bg-stone-100 text-xs text-stone-500">
-                    <span>{a.emoji}</span>
+                    <ActivityIcon emoji={a.emoji} size={12} className="text-stone-500" />
                     <span>{a.label}</span>
                   </div>
                 ))}
@@ -1913,7 +1930,7 @@ function SortableActivityItem({ act, reorderMode, onEdit, onDelete, onToggleImpo
           <GripVertical size={14} className="text-stone-500" />
         </button>
       )}
-      <span className="text-lg">{act.emoji}</span>
+      <ActivityIcon emoji={act.emoji} size={18} color={act.color} />
       <span className="flex-1 text-sm text-stone-900 truncate" style={{ fontWeight: 500 }}>{act.label}</span>
       {categoryLabel && <span className="text-[10px] px-2 py-0.5 rounded-full bg-stone-100 text-stone-500 flex-shrink-0">{categoryLabel}</span>}
       <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: act.color }} />
@@ -1961,7 +1978,7 @@ function QuickAddPresets({ existingLabels, onAddSelected }) {
                 opacity: exists ? 0.55 : 1,
               }}
             >
-              <span className="text-lg leading-none">{p.emoji}</span>
+              <ActivityIcon emoji={p.emoji} size={18} color={exists ? '#78716c' : (isSelected ? '#fff' : p.color)} />
               <span className="text-[11px] leading-tight" style={{ color: exists ? '#78716c' : (isSelected ? 'white' : '#1c1917'), fontWeight: isSelected ? 600 : 500 }}>
                 {exists ? '已加入' : p.label}
               </span>
@@ -1991,7 +2008,7 @@ function ActivityForm({ initial, onSubmit, onCancel }) {
       <p className="text-[10px] text-stone-500 mb-1">圖示</p>
       <div className="grid grid-cols-9 gap-1 mb-2 max-h-32 overflow-y-auto">
         {ACTIVITY_EMOJIS.map(em => (
-          <button key={em} onClick={() => setEmoji(em)} className="aspect-square rounded-md text-base" style={{ background: emoji === em ? '#1c1917' : '#fafaf9', border: `1px solid ${emoji === em ? '#1c1917' : '#e7e5e4'}` }}>{em}</button>
+          <button key={em} onClick={() => setEmoji(em)} className="aspect-square rounded-md flex items-center justify-center" style={{ background: emoji === em ? '#1c1917' : '#fafaf9', border: `1px solid ${emoji === em ? '#1c1917' : '#e7e5e4'}` }}><ActivityIcon emoji={em} size={16} color={emoji === em ? '#fff' : '#57534e'} /></button>
         ))}
       </div>
       <p className="text-[10px] text-stone-500 mb-1">顏色</p>
@@ -2060,7 +2077,7 @@ function SupplementManager({ slots, onSave, onClose, productLibrary, productCate
           ) : (
             <div className="rounded-xl bg-white border border-stone-200 overflow-hidden">
               <div className="flex items-center gap-2 p-3 bg-stone-50 border-b border-stone-200">
-                <span className="text-lg">{slot.emoji}</span>
+                <ActivityIcon emoji={slot.emoji} size={18} className="text-stone-400" />
                 <span className="flex-1 text-sm text-stone-900" style={{ fontWeight: 600 }}>{slot.label}</span>
                 {reorderMode ? (
                   <div className="flex gap-1">
@@ -2103,7 +2120,7 @@ function SlotForm({ initial, onSubmit, onCancel }) {
       <p className="text-[10px] text-stone-500 mb-1">圖示</p>
       <div className="grid grid-cols-7 gap-1 mb-3">
         {SLOT_EMOJIS.map(em => (
-          <button key={em} onClick={() => setEmoji(em)} className="aspect-square rounded-md text-base" style={{ background: emoji === em ? '#1c1917' : '#fafaf9', border: `1px solid ${emoji === em ? '#1c1917' : '#e7e5e4'}` }}>{em}</button>
+          <button key={em} onClick={() => setEmoji(em)} className="aspect-square rounded-md flex items-center justify-center" style={{ background: emoji === em ? '#1c1917' : '#fafaf9', border: `1px solid ${emoji === em ? '#1c1917' : '#e7e5e4'}` }}><ActivityIcon emoji={em} size={16} color={emoji === em ? '#fff' : '#57534e'} /></button>
         ))}
       </div>
       <p className="text-[10px] text-stone-500 mb-1">提醒時間</p>
@@ -3575,7 +3592,7 @@ function NowCard({ activities, template, todayIdx }) {
         </div>
         {currentAct ? (
           <div className="flex items-center gap-2">
-            <span className="text-2xl">{currentAct.emoji}</span>
+            <ActivityIcon emoji={currentAct.emoji} size={24} color={currentAct.color} />
             <span className="text-base text-stone-900" style={{ fontWeight: 600 }}>
               {currentAct.label}
             </span>
@@ -3591,7 +3608,7 @@ function NowCard({ activities, template, todayIdx }) {
         <div className="pt-2 border-t border-stone-200/60 flex items-center gap-1.5 text-xs text-stone-600">
           <span className="text-stone-400">下一個 · {minutesToNext} 分鐘後</span>
           <span className="ml-auto flex items-center gap-1">
-            <span>{nextAct.emoji}</span>
+            <ActivityIcon emoji={nextAct.emoji} size={14} color={nextAct.color} />
             <span style={{ fontWeight: 500 }}>{nextAct.label}</span>
           </span>
         </div>

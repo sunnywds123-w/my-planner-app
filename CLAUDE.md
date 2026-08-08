@@ -308,7 +308,7 @@ Alternative: [有冇其他做法]
 4. `472bb06` feat: 產品庫加獨立新增入口 + 分享圖片合成資訊卡
 5. `f3f60f7` feat: 計劃日視圖加「複製到其他日」
 6. `812f92a` feat: 產品庫加「WhatsApp 分享」按鈕（原圖+文字分開）
-7. `PENDING_HASH` fix: 護膚/supplement 打剔跟住換日自動 reset
+7. `58d7754` fix: 護膚/supplement 打剔跟住換日自動 reset
 
 （另一個 session 同期完成：`5b18c58` 統計報告時間分類拆做 4 個
 睡眠/自我提升類/一般事項/工作類 —— 呢個 commit 同時解決咗低下面

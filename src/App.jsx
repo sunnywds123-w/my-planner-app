@@ -2658,20 +2658,20 @@ function UpdateBanner({ show, updating, onUpdate }) {
 // 打鈎清單項目 — 抽出自 SupplementsSection（emerald）同 SkincareSection（blue，帶 index 數字），
 // 兩邊視覺完全保留（顏色、strike-through、isNow 強調），純粹將重複 JSX 收埋一個地方
 const CHECKLIST_TINTS = {
-  emerald: { bg: '#ecfdf5', border: '#10b981', text: '#065f46', strike: '#10b98180' },
-  blue: { bg: '#eff6ff', border: '#3b82f6', text: '#1e3a8a', strike: '#3b82f680', indexText: '#1e40af' },
+  emerald: { bg: '#EEEDFE', border: '#AFA9EC', checkFill: '#534AB7', text: '#3C3489', strike: '#7F77DD80', indexText: '#534AB7' },
+  blue: { bg: '#EEEDFE', border: '#AFA9EC', checkFill: '#534AB7', text: '#3C3489', strike: '#7F77DD80', indexText: '#534AB7' },
 };
 
 function ChecklistItem({ label, checked, isNow, index, tint = 'emerald', onClick, onOpenDetail }) {
   const c = CHECKLIST_TINTS[tint];
   return (
-    <div className="w-full mb-1.5 rounded-xl flex items-center transition-all" style={{ background: checked ? c.bg : (isNow ? '#fffbeb' : '#ffffff'), border: `1px solid ${checked ? c.border : (isNow ? '#fbbf24' : '#e7e5e4')}` }}>
+    <div className="w-full mb-1.5 rounded-xl flex items-center transition-all" style={{ background: checked ? c.bg : (isNow ? '#fdfaf3' : '#ffffff'), border: `1px solid ${checked ? c.border : (isNow ? '#eccb85' : '#e7e5e4')}` }}>
       <button onClick={onClick} className="flex-1 min-w-0 flex items-center gap-3 py-3 pl-4 pr-2 active:scale-[0.98] transition-transform text-left">
         {index !== undefined && (
-          <span className="text-xs w-5 text-center flex-shrink-0" style={{ color: checked ? (c.indexText || c.text) : '#a8a29e', fontFamily: 'Georgia, serif', fontWeight: 600 }}>{index}</span>
+          <span className="text-xs w-5 text-center flex-shrink-0" style={{ color: checked ? (c.indexText || c.text) : '#a8a29e', fontWeight: 500 }}>{index}</span>
         )}
-        <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: checked ? c.border : 'transparent', border: checked ? 'none' : '2px solid #d6d3d1' }}>
-          {checked && <Check size={14} color="white" strokeWidth={3} />}
+        <div className="w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: checked ? c.checkFill : 'transparent', border: checked ? 'none' : '1.5px solid #d6d3d1' }}>
+          {checked && <Check size={14} color="white" strokeWidth={2.5} />}
         </div>
         <span className="text-base flex-1 truncate" style={{ color: checked ? c.text : '#1c1917', fontWeight: 500, textDecorationLine: checked ? 'line-through' : 'none', textDecorationColor: c.strike }}>{label}</span>
       </button>

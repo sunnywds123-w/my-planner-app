@@ -1038,7 +1038,7 @@ function PlanTab({ activities, template, onSaveTemplate, onSaveActivities }) {
                     <div className="flex-1 flex items-center gap-2.5">
                       {activity ? (
                         <>
-                          <ActivityIcon emoji={activity.emoji} size={20} color={activity.color} />
+                          <span className="text-xl">{activity.emoji}</span>
                           <span className="text-base text-stone-900" style={{ fontWeight: 500 }}>{activity.label}</span>
                         </>
                       ) : (

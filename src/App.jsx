@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser, Star, ExternalLink, Share2, FileUp, Library, ImagePlus, Search, MessageCircle, Sunrise, Sun, Moon, Droplet, GlassWater, Drumstick, Footprints, BedDouble, Target, Briefcase, Gamepad2, Coffee, GraduationCap, BookOpen, UtensilsCrossed, Dumbbell, Zap, Flower2, ShoppingCart, Car, Home, Phone, Plane, Clapperboard, ChefHat, Dog, Music, NotebookPen, Sprout, CircleDot, Guitar, Bed, CloudSun, Sunset, PersonStanding, CupSoda, AlarmClock } from 'lucide-react';
+import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser, Star, ExternalLink, Share2, FileUp, Library, ImagePlus, Search, MessageCircle, Sunrise, Sun, Moon, Droplet, GlassWater, Drumstick, Footprints, BedDouble, Target, Briefcase, Gamepad2, Coffee, GraduationCap, BookOpen, UtensilsCrossed, Dumbbell, Zap, Flower2, ShoppingCart, Car, Home, Phone, Plane, Clapperboard, ChefHat, Dog, Music, NotebookPen, Sprout, CircleDot, Guitar, Bed, CloudSun, Sunset, CupSoda, AlarmClock } from 'lucide-react';
 import { DndContext, closestCenter, useSensor, useSensors, MouseSensor, TouchSensor } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -79,7 +79,7 @@ const EMOJI_TO_ICON = {
   '💤': Moon, '📞': Phone, '✈️': Plane, '🎬': Clapperboard, '🍳': ChefHat,
   '🐶': Dog, '🎵': Music, '📝': NotebookPen, '🌱': Sprout, '⚽': CircleDot,
   '🎸': Guitar, '🛏️': Bed, '🌅': Sunrise, '🧴': Droplet, '☀️': Sun,
-  '🌤️': CloudSun, '🌆': Sunset, '🌙': Moon, '⭐': Star, '🏃': PersonStanding,
+  '🌤️': CloudSun, '🌆': Sunset, '🌙': Moon, '⭐': Star, '🏃': Footprints,
   '🥤': CupSoda, '💊': Pill, '⏰': AlarmClock,
 };
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser, Star, ExternalLink, Share2, FileUp, Library, ImagePlus, Search, MessageCircle } from 'lucide-react';
+import { Pill, Sparkles, FileText, Plus, X, Trash2, Pencil, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, Check, Copy, Settings, GripVertical, Calendar, Clock, BarChart3, Heart, Download, Upload, Database, Eraser, Star, ExternalLink, Share2, FileUp, Library, ImagePlus, Search, MessageCircle, Sunrise, Sun, Moon, Droplet, GlassWater, Drumstick, Footprints, BedDouble } from 'lucide-react';
 import { DndContext, closestCenter, useSensor, useSensors, MouseSensor, TouchSensor } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -749,10 +749,10 @@ function FocusTab({ activities, template, slots, skincare, skincareTimes, settin
   );
 }
 
-function FocusSectionHeader({ emoji, title, count }) {
+function FocusSectionHeader({ icon: Icon, title, count }) {
   return (
-    <div className="flex items-baseline gap-2 mb-2 px-1">
-      <span className="text-lg">{emoji}</span>
+    <div className="flex items-center gap-2 mb-2 px-1">
+      {Icon && <Icon size={18} className="text-stone-400" strokeWidth={1.75} />}
       <h3 className="text-base text-stone-900" style={{ fontWeight: 600 }}>{title}</h3>
       {count && <span className="text-[11px] text-stone-400 ml-auto">{count}</span>}
     </div>
@@ -768,10 +768,10 @@ function MorningMode({ skincare, slots, record, onToggleSkin, onToggleSupp, wate
 
   return (
     <div>
-      <p className="text-[10px] tracking-[0.3em] text-stone-500 uppercase mb-3">🌅 早晨</p>
+      <p className="text-[10px] tracking-[0.3em] text-stone-500 uppercase mb-3">早晨</p>
 
       <div className="mb-5">
-        <FocusSectionHeader emoji="☀️" title="早晨護膚" count={`${amChecked}/${amSteps.length}`} />
+        <FocusSectionHeader icon={Sun} title="早晨護膚" count={`${amChecked}/${amSteps.length}`} />
         {amSteps.length === 0 ? (
           <EmptyState icon={Sparkles} title="未設定護膚步驟" desc="去健康 tab 加返" />
         ) : amSteps.map((step, idx) => (
@@ -780,7 +780,7 @@ function MorningMode({ skincare, slots, record, onToggleSkin, onToggleSupp, wate
       </div>
 
       <div className="mb-5">
-        <FocusSectionHeader emoji="💊" title="早餐後" count={breakfastSlot ? `${breakfastChecked}/${breakfastSlot.items.length}` : null} />
+        <FocusSectionHeader icon={Pill} title="早餐後" count={breakfastSlot ? `${breakfastChecked}/${breakfastSlot.items.length}` : null} />
         {!breakfastSlot || breakfastSlot.items.length === 0 ? (
           <EmptyState icon={Pill} title='未設定「早餐後」時段' desc="去健康 tab 加返" />
         ) : breakfastSlot.items.map(item => (
@@ -839,8 +839,8 @@ function DynamicMode({ activities, template, todayIdx, slots, skincare, skincare
 
       {nowSkinPeriod && (
         <div className="mb-4">
-          <div className="flex items-baseline gap-2 mb-2 px-1">
-            <span className="text-lg">{nowSkinPeriod === 'am' ? '☀️' : '🌙'}</span>
+          <div className="flex items-center gap-2 mb-2 px-1">
+            {nowSkinPeriod === 'am' ? <Sun size={18} className="text-stone-400" strokeWidth={1.75} /> : <Moon size={18} className="text-stone-400" strokeWidth={1.75} />}
             <h3 className="text-base text-stone-900" style={{ fontWeight: 600 }}>{nowSkinPeriod === 'am' ? '早晨護膚' : '晚間護膚'}</h3>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800" style={{ fontWeight: 600 }}>Now</span>
             <span className="text-[11px] text-stone-400 ml-auto">{skincare[nowSkinPeriod].filter(s => record.skincare[`${nowSkinPeriod}:${s.id}`]).length}/{skincare[nowSkinPeriod].length}</span>
@@ -878,8 +878,8 @@ function WindDownMode({ skincare, record, onToggleSkin, onToggleWindDown, settin
       </div>
 
       <div className="mb-5">
-        <div className="flex items-baseline gap-2 mb-2 px-1">
-          <span className="text-lg">🧴</span>
+        <div className="flex items-center gap-2 mb-2 px-1">
+          <Droplet size={18} className="text-stone-400" strokeWidth={1.75} />
           <h3 className="text-base text-stone-900" style={{ fontWeight: 600 }}>護膚</h3>
           <span className="text-[10px] text-stone-400">建議 10 分鐘</span>
           <span className="text-[11px] text-stone-400 ml-auto">{pmChecked}/{pmSteps.length}</span>
@@ -892,8 +892,8 @@ function WindDownMode({ skincare, record, onToggleSkin, onToggleWindDown, settin
       </div>
 
       <div className="mb-5">
-        <ChecklistItem label="📖 睇實體書（15 分鐘）" checked={!!record.windDown?.book} tint="emerald" onClick={() => onToggleWindDown('book')} />
-        <ChecklistItem label="🧘 冥想（5 分鐘）" checked={!!record.windDown?.meditation} tint="emerald" onClick={() => onToggleWindDown('meditation')} />
+        <ChecklistItem label="睇實體書（15 分鐘）" checked={!!record.windDown?.book} tint="emerald" onClick={() => onToggleWindDown('book')} />
+        <ChecklistItem label="冥想（5 分鐘）" checked={!!record.windDown?.meditation} tint="emerald" onClick={() => onToggleWindDown('meditation')} />
       </div>
 
       <WaterTracker goal={waterGoal} readOnly={true} />
@@ -1365,8 +1365,8 @@ function SkincareSection({ skincare, skincareTimes, record, onToggle, onSaveSkin
         return (
           <div key={period} className="mb-5">
             <div className="flex items-center justify-between mb-2 px-1">
-              <div className="flex items-baseline gap-2">
-                <span className="text-lg">{period === 'am' ? '☀️' : '🌙'}</span>
+              <div className="flex items-center gap-2">
+                {period === 'am' ? <Sun size={18} className="text-stone-400" strokeWidth={1.75} /> : <Moon size={18} className="text-stone-400" strokeWidth={1.75} />}
                 <h3 className="text-base text-stone-900" style={{ fontWeight: 600 }}>{period === 'am' ? '早晨護膚' : '晚間護膚'}</h3>
                 <button
                   onClick={() => setEditingTimes(true)}
@@ -1421,7 +1421,7 @@ function SkincareTimesModal({ times, onSave, onClose }) {
       <div className="rounded-xl bg-white border border-stone-200 p-4 mb-3">
         <div className="mb-3">
           <label className="text-xs text-stone-600 mb-1.5 flex items-center gap-1.5">
-            <span className="text-base">☀️</span>早晨護膚
+            <Sun size={16} className="text-stone-400" strokeWidth={1.75} />早晨護膚
           </label>
           <input
             type="time"
@@ -1432,7 +1432,7 @@ function SkincareTimesModal({ times, onSave, onClose }) {
         </div>
         <div>
           <label className="text-xs text-stone-600 mb-1.5 flex items-center gap-1.5">
-            <span className="text-base">🌙</span>晚間護膚
+            <Moon size={16} className="text-stone-400" strokeWidth={1.75} />晚間護膚
           </label>
           <input
             type="time"
@@ -2742,7 +2742,7 @@ function WaterTracker({ goal, readOnly }) {
     <div className="rounded-2xl bg-white border border-stone-200 p-4 mb-4">
       <div className="flex items-baseline justify-between mb-2">
         <div className="flex items-center gap-1.5">
-          <span className="text-base">💧</span>
+          <GlassWater size={16} className="text-stone-400" strokeWidth={1.75} />
           <span className="text-sm text-stone-900" style={{ fontWeight: 600 }}>飲水</span>
         </div>
         <p className="text-xs text-stone-500" style={{ fontFamily: 'Georgia, serif' }}>
@@ -2835,7 +2835,7 @@ function ProteinTracker({ goal, readOnly }) {
     <div className="rounded-2xl bg-white border border-stone-200 p-4 mb-4">
       <div className="flex items-baseline justify-between mb-2">
         <div className="flex items-center gap-1.5">
-          <span className="text-base">🍗</span>
+          <Drumstick size={16} className="text-stone-400" strokeWidth={1.75} />
           <span className="text-sm text-stone-900" style={{ fontWeight: 600 }}>蛋白質</span>
         </div>
         <p className="text-xs text-stone-500" style={{ fontFamily: 'Georgia, serif' }}>
@@ -2889,7 +2889,7 @@ function StepsTracker({ checked, onToggle, readOnly }) {
         borderColor: checked ? '#10b981' : '#e7e5e4',
       }}
     >
-      <span className="text-base">👟</span>
+      <Footprints size={16} className="text-stone-400" strokeWidth={1.75} />
       <span className="flex-1 text-left text-sm text-stone-900" style={{ fontWeight: 600 }}>{STEPS_GOAL.toLocaleString()} 步</span>
       <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: checked ? '#10b981' : 'transparent', border: checked ? 'none' : '2px solid #d6d3d1' }}>
         {checked && <Check size={14} color="white" strokeWidth={3} />}
@@ -2927,7 +2927,7 @@ function SettingsModal({ settings, onSave, onClose }) {
       <div className="rounded-xl bg-white border border-stone-200 p-4 mb-3">
         <div className="mb-3">
           <label className="text-xs text-stone-600 mb-1.5 flex items-center gap-1.5">
-            <span className="text-base">🌅</span>Morning mode 開始時間
+            <Sunrise size={16} className="text-stone-400" strokeWidth={1.75} />Morning mode 開始時間
           </label>
           <input
             type="time"
@@ -2938,7 +2938,7 @@ function SettingsModal({ settings, onSave, onClose }) {
         </div>
         <div className="mb-3">
           <label className="text-xs text-stone-600 mb-1.5 flex items-center gap-1.5">
-            <span className="text-base">🌅</span>Morning mode 結束時間
+            <Sunrise size={16} className="text-stone-400" strokeWidth={1.75} />Morning mode 結束時間
           </label>
           <input
             type="time"
@@ -2952,7 +2952,7 @@ function SettingsModal({ settings, onSave, onClose }) {
         </div>
         <div className="mb-3">
           <label className="text-xs text-stone-600 mb-1.5 flex items-center gap-1.5">
-            <span className="text-base">🌙</span>Wind-down mode 開始時間
+            <Moon size={16} className="text-stone-400" strokeWidth={1.75} />Wind-down mode 開始時間
           </label>
           <input
             type="time"
@@ -2963,7 +2963,7 @@ function SettingsModal({ settings, onSave, onClose }) {
         </div>
         <div className="mb-3">
           <label className="text-xs text-stone-600 mb-1.5 flex items-center gap-1.5">
-            <span className="text-base">💤</span>Sleep target
+            <BedDouble size={16} className="text-stone-400" strokeWidth={1.75} />Sleep target
           </label>
           <input
             type="time"
@@ -2974,7 +2974,7 @@ function SettingsModal({ settings, onSave, onClose }) {
         </div>
         <div>
           <label className="text-xs text-stone-600 mb-1.5 flex items-center gap-1.5">
-            <span className="text-base">💧</span>每日水量目標（ml）
+            <GlassWater size={16} className="text-stone-400" strokeWidth={1.75} />每日水量目標（ml）
           </label>
           <input
             type="number"
@@ -2990,7 +2990,7 @@ function SettingsModal({ settings, onSave, onClose }) {
         </div>
         <div className="mt-3">
           <label className="text-xs text-stone-600 mb-1.5 flex items-center gap-1.5">
-            <span className="text-base">🍗</span>每日蛋白質目標（g）
+            <Drumstick size={16} className="text-stone-400" strokeWidth={1.75} />每日蛋白質目標（g）
           </label>
           <input
             type="number"

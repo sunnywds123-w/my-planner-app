@@ -154,6 +154,44 @@ async function scanDateRecords(startStr, endStr, types) {
   return matched;
 }
 
+// 計算 health streak：由今日開始向前數，「嗰日有 supps 或 skincare 打過勾」就算完成
+// 今日未做唔會即刻斷（畀機會補），但由琴日開始只要斷咗一日就停
+async function computeHealthStreak() {
+  try {
+    const listResult = await window.storage.list();
+    const keys = (listResult?.keys || []).filter(k => k.startsWith(HEALTH_RECORD_PREFIX));
+    const doneDates = new Set();
+    await Promise.all(keys.map(async (k) => {
+      try {
+        const r = await window.storage.get(k);
+        if (!r?.value) return;
+        const p = JSON.parse(r.value);
+        const hasSupps = Object.values(p.supps || {}).some(Boolean);
+        const hasSkin = Object.values(p.skincare || {}).some(Boolean);
+        if (hasSupps || hasSkin) doneDates.add(k.slice(HEALTH_RECORD_PREFIX.length));
+      } catch {}
+    }));
+
+    let streak = 0;
+    let cursor = new Date();
+    let first = true;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const dStr = fmtDate(cursor);
+      if (doneDates.has(dStr)) {
+        streak++;
+      } else if (!first) {
+        break;
+      }
+      first = false;
+      cursor = new Date(cursor.getTime() - 86400000);
+    }
+    return streak;
+  } catch {
+    return 0;
+  }
+}
+
 const DEFAULT_SETTINGS = {
   morningStart: '07:00',
   morningEnd: '09:00',
@@ -1182,12 +1220,18 @@ function HealthTab({ slots, skincare, skincareTimes, onSaveSlots, onSaveSkincare
   const [now, setNow] = useState(new Date());
   const [currentDate, setCurrentDate] = useState(new Date());
   const [record, setRecord] = useState({ supps: {}, skincare: {} });
+  const [streak, setStreak] = useState(0);
   const pinnedToToday = useRef(true);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
+
+  // record 一改（例如今日剔咗一個 supp）就重新計 streak
+  useEffect(() => {
+    computeHealthStreak().then(setStreak);
+  }, [record]);
 
   const dateStr = fmtDate(now);
   useEffect(() => {
@@ -1262,6 +1306,14 @@ function HealthTab({ slots, skincare, skincareTimes, onSaveSlots, onSaveSkincare
           <ChevronRight size={15} className="text-stone-700" />
         </button>
       </div>
+
+      {/* Streak badge */}
+      {streak > 0 && (
+        <div className="flex items-center justify-center gap-1.5 mb-3 py-1.5 rounded-full" style={{ background: '#fff7ed', border: '1px solid #fed7aa' }}>
+          <span style={{ fontSize: 14 }}>🔥</span>
+          <span className="text-xs" style={{ color: '#9a3412', fontWeight: 600 }}>連續 {streak} 日</span>
+        </div>
+      )}
 
       {/* Section switcher */}
       <div className="flex gap-1 p-1 bg-stone-200/60 rounded-full mb-4">

@@ -1056,7 +1056,7 @@ function PlanTab({ activities, template, onSaveTemplate, onSaveActivities }) {
                         const selected = actId === act.id;
                         return (
                           <button key={act.id} onClick={() => handleSelect(currentDay, hour, act.id)} className="flex flex-col items-center gap-1 py-2.5 px-1 rounded-lg transition-all active:scale-95" style={{ background: selected ? act.color : act.color + '15', border: `1px solid ${selected ? act.color : 'transparent'}` }}>
-                            <ActivityIcon emoji={act.emoji} size={18} color={selected ? '#fff' : act.color} />
+                            <span className="text-lg leading-none">{act.emoji}</span>
                             <span className="text-[11px] leading-tight" style={{ color: selected ? 'white' : '#1c1917', fontWeight: selected ? 600 : 500 }}>{act.label}</span>
                           </button>
                         );

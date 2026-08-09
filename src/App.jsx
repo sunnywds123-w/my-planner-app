@@ -154,42 +154,128 @@ async function scanDateRecords(startStr, endStr, types) {
   return matched;
 }
 
-// 計算 health streak：由今日開始向前數，「嗰日有 supps 或 skincare 打過勾」就算完成
-// 今日未做唔會即刻斷（畀機會補），但由琴日開始只要斷咗一日就停
-async function computeHealthStreak() {
+// 由「邊幾日有完成」嘅 Set，計返連續幾多日（今日未做唔即刻斷，畀 grace day；
+// 琴日或之前斷咗一日就停）。3 條 streak（supps/am/pm）共用呢個邏輯。
+function streakFromDoneSet(doneSet) {
+  let streak = 0;
+  let cursor = new Date();
+  let first = true;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const dStr = fmtDate(cursor);
+    if (doneSet.has(dStr)) {
+      streak++;
+    } else if (!first) {
+      break;
+    }
+    first = false;
+    cursor = new Date(cursor.getTime() - 86400000);
+  }
+  return streak;
+}
+
+// 計算 3 條分開嘅 health streak：保健品 / 早晨護膚 / 晚間護膚。
+// 各自獨立判斷「嗰日有冇打過勾」，先至唔會一個 routine 冇做拖累另一個 routine 嘅 streak。
+async function computeHealthStreaks() {
   try {
     const listResult = await window.storage.list();
     const keys = (listResult?.keys || []).filter(k => k.startsWith(HEALTH_RECORD_PREFIX));
-    const doneDates = new Set();
+    const doneDates = { supps: new Set(), am: new Set(), pm: new Set() };
     await Promise.all(keys.map(async (k) => {
       try {
         const r = await window.storage.get(k);
         if (!r?.value) return;
         const p = JSON.parse(r.value);
-        const hasSupps = Object.values(p.supps || {}).some(Boolean);
-        const hasSkin = Object.values(p.skincare || {}).some(Boolean);
-        if (hasSupps || hasSkin) doneDates.add(k.slice(HEALTH_RECORD_PREFIX.length));
+        const dateStr = k.slice(HEALTH_RECORD_PREFIX.length);
+        if (Object.values(p.supps || {}).some(Boolean)) doneDates.supps.add(dateStr);
+        const skinEntries = Object.entries(p.skincare || {});
+        if (skinEntries.some(([sk, v]) => v && sk.startsWith('am:'))) doneDates.am.add(dateStr);
+        if (skinEntries.some(([sk, v]) => v && sk.startsWith('pm:'))) doneDates.pm.add(dateStr);
       } catch {}
     }));
-
-    let streak = 0;
-    let cursor = new Date();
-    let first = true;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const dStr = fmtDate(cursor);
-      if (doneDates.has(dStr)) {
-        streak++;
-      } else if (!first) {
-        break;
-      }
-      first = false;
-      cursor = new Date(cursor.getTime() - 86400000);
-    }
-    return streak;
+    return {
+      supps: streakFromDoneSet(doneDates.supps),
+      am: streakFromDoneSet(doneDates.am),
+      pm: streakFromDoneSet(doneDates.pm),
+    };
   } catch {
-    return 0;
+    return { supps: 0, am: 0, pm: 0 };
   }
+}
+
+// 打卡分享卡：白底 + 3 條 routine 嘅 streak 數字，畀 Sunny 分享去社交平台打卡用。
+// 淨係分享嗰下先臨時合成，唔會存落 storage，風格跟返 composeShareCard 嗰套（Georgia 數字、
+// PingFang 內文），橙色沿用 HealthTab streak badge 已經定咗嘅「慶祝色」，唔用紫色狀態色。
+function composeStreakShareCard(streaks, dateObj) {
+  const CARD_W = 800;
+  const CARD_H = 1040;
+  const PAD = 56;
+  const FONT_SANS = '-apple-system, "PingFang HK", "Helvetica Neue", sans-serif';
+  const FONT_SERIF = 'Georgia, serif';
+  const rows = [
+    { icon: '💊', label: '保健品', value: streaks.supps },
+    { icon: '🌅', label: '早晨護膚', value: streaks.am },
+    { icon: '🌙', label: '晚間護膚', value: streaks.pm },
+  ];
+  return new Promise((resolve, reject) => {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = CARD_W;
+      canvas.height = CARD_H;
+      const ctx = canvas.getContext('2d');
+
+      ctx.fillStyle = '#fafaf9';
+      ctx.fillRect(0, 0, CARD_W, CARD_H);
+
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillStyle = '#a8a29e';
+      ctx.font = `20px ${FONT_SERIF}`;
+      ctx.fillText(`${dateObj.getFullYear()}年${dateObj.getMonth() + 1}月${dateObj.getDate()}日`, PAD, PAD + 8);
+
+      ctx.fillStyle = '#1c1917';
+      ctx.font = `bold 44px ${FONT_SANS}`;
+      ctx.fillText('今日打卡', PAD, PAD + 78);
+
+      ctx.fillStyle = '#78716c';
+      ctx.font = `22px ${FONT_SANS}`;
+      ctx.fillText('一日一日咁儲返嚟', PAD, PAD + 114);
+
+      let y = PAD + 178;
+      const ROW_GAP = 24;
+      const ROW_H = 176;
+      rows.forEach((row) => {
+        ctx.fillStyle = '#fff7ed';
+        drawRoundedRect(ctx, PAD, y, CARD_W - PAD * 2, ROW_H, 24);
+
+        ctx.font = `54px ${FONT_SANS}`;
+        ctx.textBaseline = 'middle';
+        ctx.fillText(row.icon, PAD + 32, y + ROW_H / 2);
+
+        ctx.fillStyle = '#78716c';
+        ctx.font = `24px ${FONT_SANS}`;
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText(row.label, PAD + 112, y + ROW_H / 2 - 14);
+
+        ctx.fillStyle = '#9a3412';
+        ctx.font = `bold 48px ${FONT_SERIF}`;
+        ctx.fillText(`連續 ${row.value} 日`, PAD + 112, y + ROW_H / 2 + 42);
+
+        y += ROW_H + ROW_GAP;
+      });
+
+      ctx.fillStyle = '#d6d3d1';
+      ctx.font = `18px ${FONT_SANS}`;
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText('my-planner-app', PAD, CARD_H - 40);
+
+      canvas.toBlob((blob) => {
+        if (!blob) { reject(new Error('合成失敗')); return; }
+        resolve(blob);
+      }, 'image/jpeg', 0.92);
+    } catch (e) {
+      reject(e);
+    }
+  });
 }
 
 const DEFAULT_SETTINGS = {
@@ -1220,7 +1306,8 @@ function HealthTab({ slots, skincare, skincareTimes, onSaveSlots, onSaveSkincare
   const [now, setNow] = useState(new Date());
   const [currentDate, setCurrentDate] = useState(new Date());
   const [record, setRecord] = useState({ supps: {}, skincare: {} });
-  const [streak, setStreak] = useState(0);
+  const [streaks, setStreaks] = useState({ supps: 0, am: 0, pm: 0 });
+  const [sharing, setSharing] = useState(false);
   const pinnedToToday = useRef(true);
 
   useEffect(() => {
@@ -1228,10 +1315,40 @@ function HealthTab({ slots, skincare, skincareTimes, onSaveSlots, onSaveSkincare
     return () => clearInterval(timer);
   }, []);
 
-  // record 一改（例如今日剔咗一個 supp）就重新計 streak
+  // record 一改（例如今日剔咗一個 supp）就重新計 3 條 streak
   useEffect(() => {
-    computeHealthStreak().then(setStreak);
+    computeHealthStreaks().then(setStreaks);
   }, [record]);
+
+  // 合成打卡卡並用系統分享面板分享（IG Story/WhatsApp 等）；
+  // 唔支援 navigator.share 就 fallback 落載相
+  const handleShareStreak = async () => {
+    setSharing(true);
+    try {
+      const blob = await composeStreakShareCard(streaks, new Date());
+      const filename = `打卡-${fmtDate(new Date())}.jpg`;
+      const file = new File([blob], filename, { type: 'image/jpeg' });
+      const text = `💊 保健品 連續 ${streaks.supps} 日\n🌅 早晨護膚 連續 ${streaks.am} 日\n🌙 晚間護膚 連續 ${streaks.pm} 日`;
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: '今日打卡', text });
+      } else if (navigator.share) {
+        await navigator.share({ title: '今日打卡', text });
+      } else {
+        const url = URL.createObjectURL(file);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch (e) {
+      if (e?.name !== 'AbortError') console.error('分享打卡卡失敗', e);
+    } finally {
+      setSharing(false);
+    }
+  };
 
   const dateStr = fmtDate(now);
   useEffect(() => {
@@ -1307,11 +1424,17 @@ function HealthTab({ slots, skincare, skincareTimes, onSaveSlots, onSaveSkincare
         </button>
       </div>
 
-      {/* Streak badge */}
-      {streak > 0 && (
-        <div className="flex items-center justify-center gap-1.5 mb-3 py-1.5 rounded-full" style={{ background: '#fff7ed', border: '1px solid #fed7aa' }}>
-          <span style={{ fontSize: 14 }}>🔥</span>
-          <span className="text-xs" style={{ color: '#9a3412', fontWeight: 600 }}>連續 {streak} 日</span>
+      {/* 打卡摘要：3 條 routine streak 分開顯示 + 分享去社交平台 */}
+      {(streaks.supps > 0 || streaks.am > 0 || streaks.pm > 0) && (
+        <div className="flex items-center justify-between gap-2 mb-3 py-1.5 px-3 rounded-full" style={{ background: '#fff7ed', border: '1px solid #fed7aa' }}>
+          <div className="flex items-center gap-3 flex-wrap">
+            {streaks.supps > 0 && <span className="text-xs" style={{ color: '#9a3412', fontWeight: 600 }}>💊 {streaks.supps}</span>}
+            {streaks.am > 0 && <span className="text-xs" style={{ color: '#9a3412', fontWeight: 600 }}>🌅 {streaks.am}</span>}
+            {streaks.pm > 0 && <span className="text-xs" style={{ color: '#9a3412', fontWeight: 600 }}>🌙 {streaks.pm}</span>}
+          </div>
+          <button onClick={handleShareStreak} disabled={sharing} className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full active:scale-95" style={{ background: '#9a3412', color: 'white', fontWeight: 600, opacity: sharing ? 0.6 : 1 }}>
+            <Share2 size={11} />打卡分享
+          </button>
         </div>
       )}
 
@@ -1325,13 +1448,13 @@ function HealthTab({ slots, skincare, skincareTimes, onSaveSlots, onSaveSkincare
         </button>
       </div>
 
-      {section === 'supps' && <SupplementsSection slots={slots} record={record} onToggle={toggleSupp} onSaveSlots={onSaveSlots} isToday={isSameDate(currentDate, new Date())} productLibrary={productLibrary} productCategories={productCategories} onAddToLibrary={onAddToLibrary} onDeleteFromLibrary={onDeleteFromLibrary} />}
-      {section === 'skincare' && <SkincareSection skincare={skincare} skincareTimes={skincareTimes} record={record} onToggle={toggleSkin} onSaveSkincare={onSaveSkincare} onSaveSkincareTimes={onSaveSkincareTimes} isToday={isSameDate(currentDate, new Date())} productLibrary={productLibrary} productCategories={productCategories} onAddToLibrary={onAddToLibrary} onDeleteFromLibrary={onDeleteFromLibrary} />}
+      {section === 'supps' && <SupplementsSection slots={slots} record={record} onToggle={toggleSupp} onSaveSlots={onSaveSlots} isToday={isSameDate(currentDate, new Date())} productLibrary={productLibrary} productCategories={productCategories} onAddToLibrary={onAddToLibrary} onDeleteFromLibrary={onDeleteFromLibrary} streak={streaks.supps} />}
+      {section === 'skincare' && <SkincareSection skincare={skincare} skincareTimes={skincareTimes} record={record} onToggle={toggleSkin} onSaveSkincare={onSaveSkincare} onSaveSkincareTimes={onSaveSkincareTimes} isToday={isSameDate(currentDate, new Date())} productLibrary={productLibrary} productCategories={productCategories} onAddToLibrary={onAddToLibrary} onDeleteFromLibrary={onDeleteFromLibrary} streaks={streaks} />}
     </div>
   );
 }
 
-function SupplementsSection({ slots, record, onToggle, onSaveSlots, isToday, productLibrary, productCategories, onAddToLibrary, onDeleteFromLibrary }) {
+function SupplementsSection({ slots, record, onToggle, onSaveSlots, isToday, productLibrary, productCategories, onAddToLibrary, onDeleteFromLibrary, streak = 0 }) {
   const [managing, setManaging] = useState(false);
   const [detailItem, setDetailItem] = useState(null);
   const totalItems = slots.reduce((s, sl) => s + sl.items.length, 0);
@@ -1359,9 +1482,14 @@ function SupplementsSection({ slots, record, onToggle, onSaveSlots, isToday, pro
   return (
     <div>
       <div className="flex items-center justify-between mb-3 px-1">
-        <p className="text-xs text-stone-500" style={{ fontFamily: 'Georgia, serif' }}>
-          <span className="text-base text-stone-900" style={{ fontWeight: 500 }}>{checkedItems}</span><span className="mx-1">/</span>{totalItems} 已食
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="text-xs text-stone-500" style={{ fontFamily: 'Georgia, serif' }}>
+            <span className="text-base text-stone-900" style={{ fontWeight: 500 }}>{checkedItems}</span><span className="mx-1">/</span>{totalItems} 已食
+          </p>
+          {streak > 0 && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: '#fff7ed', color: '#9a3412', fontWeight: 600 }}>🔥 {streak}</span>
+          )}
+        </div>
         <button onClick={() => setManaging(true)} className="text-xs text-stone-600 flex items-center gap-1 px-3 py-1.5 rounded-full bg-white border border-stone-200 active:scale-95">
           <Settings size={11} />管理
         </button>
@@ -1406,7 +1534,7 @@ function SupplementsSection({ slots, record, onToggle, onSaveSlots, isToday, pro
   );
 }
 
-function SkincareSection({ skincare, skincareTimes, record, onToggle, onSaveSkincare, onSaveSkincareTimes, isToday, productLibrary, productCategories, onAddToLibrary, onDeleteFromLibrary }) {
+function SkincareSection({ skincare, skincareTimes, record, onToggle, onSaveSkincare, onSaveSkincareTimes, isToday, productLibrary, productCategories, onAddToLibrary, onDeleteFromLibrary, streaks = { am: 0, pm: 0 } }) {
   const [managing, setManaging] = useState(null);
   const [editingTimes, setEditingTimes] = useState(false);
   const [detailItem, setDetailItem] = useState(null);
@@ -1448,6 +1576,9 @@ function SkincareSection({ skincare, skincareTimes, record, onToggle, onSaveSkin
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800" style={{ fontWeight: 600 }}>
                     Now
                   </span>
+                )}
+                {streaks[period] > 0 && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: '#fff7ed', color: '#9a3412', fontWeight: 600 }}>🔥 {streaks[period]}</span>
                 )}
                 <span className="text-[11px] text-stone-400">{checked}/{steps.length}</span>
               </div>
